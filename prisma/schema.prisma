@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,11 +8,34 @@ datasource db {
 }
 
 model Pax {
-  id         Int      @id @default(autoincrement())
+  id         String   @id @default(cuid())
   firstname  String
   middlename String
   lastname   String
   email      String   @unique
   dob        DateTime
   obs        String
+  File       File[]   @relation("FilePax")
+}
+
+model File {
+  id       String    @id @default(cuid())
+  obs      String
+  clients  Pax[]     @relation("FilePax")
+  services Service[] @relation("FileService")
+}
+
+model Service {
+  id       String   @id @default(cuid())
+  cost     Decimal
+  currency Currency
+  provider String
+  obs      String
+  File     File[]   @relation("FileService")
+}
+
+enum Currency {
+  USD
+  PESOS
+  EURO
 }
