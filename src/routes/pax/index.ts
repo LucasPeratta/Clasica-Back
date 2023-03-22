@@ -4,15 +4,15 @@ const router = express.Router();
 import {
   addPax,
   getAllPax,
-  getpaxById,
-  updatepax,
-  deletepax,
-} from "../../controllers/paxControllers";
+  getPaxById,
+  updatePax,
+  deletePax,
+} from "../../controllers/paxController";
 
 router.get("/", getAllPax);
 router.post("/", addPax);
-router.get("/:id", getpaxById);
-router.put("/:id", updatepax);
-router.delete("/:id", deletepax);
+router.get("/:id", getPaxById);
+router.put("/:id", updatePax);
+router.delete("/:id", deletePax);
 
 export default router;

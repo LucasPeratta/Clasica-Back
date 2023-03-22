@@ -15,23 +15,29 @@ model Pax {
   email      String   @unique
   dob        DateTime
   obs        String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
   File       File[]   @relation("FilePax")
 }
 
 model File {
-  id       String    @id @default(cuid())
-  obs      String
-  clients  Pax[]     @relation("FilePax")
-  services Service[] @relation("FileService")
+  id        String    @id @default(cuid())
+  obs       String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  clients   Pax[]     @relation("FilePax")
+  services  Service[] @relation("FileService")
 }
 
 model Service {
-  id       String   @id @default(cuid())
-  cost     Decimal
-  currency Currency
-  provider String
-  obs      String
-  File     File[]   @relation("FileService")
+  id        String   @id @default(cuid())
+  cost      Decimal
+  currency  Currency
+  provider  String
+  obs       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  File      File[]   @relation("FileService")
 }
 
 enum Currency {

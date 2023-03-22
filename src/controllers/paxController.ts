@@ -31,8 +31,8 @@ export const getAllPax = async (req: Request, res: Response) => {
   }
 };
 
-export const getpaxById = async (req: Request, res: Response) => {
-  const paxId = parseInt(req.params.id);
+export const getPaxById = async (req: Request, res: Response) => {
+  const paxId = req.params.id;
   try {
     const pax = await prisma.pax.findUnique({
       where: {
@@ -40,15 +40,15 @@ export const getpaxById = async (req: Request, res: Response) => {
       },
     });
 
-    res.json({ msg: "pax retrieved SUCCESSFULLY", pax });
+    res.json({ msg: "pax retrieved SUCCESSFULLY", data: pax });
   } catch (error) {
     res.json({ msg: "Error, couldn't retrieve pax", error });
     console.log(error);
   }
 };
 
-export const updatepax = async (req: Request, res: Response) => {
-  const paxId = parseInt(req.params.id);
+export const updatePax = async (req: Request, res: Response) => {
+  const paxId = req.params.id;
   const updatedpax = req.body;
   try {
     const pax = await prisma.pax.update({
@@ -64,15 +64,15 @@ export const updatepax = async (req: Request, res: Response) => {
         obs: updatedpax.obs,
       },
     });
-    res.json({ msg: "pax updated SUCCESSFULLY", pax });
+    res.json({ msg: "pax updated SUCCESSFULLY", data: pax });
   } catch (error) {
     res.json({ msg: "Error, couldn't update pax", error });
     console.log(error);
   }
 };
 
-export const deletepax = async (req: Request, res: Response) => {
-  const paxId = parseInt(req.params.id);
+export const deletePax = async (req: Request, res: Response) => {
+  const paxId = req.params.id;
   try {
     const pax = await prisma.pax.delete({
       where: {
