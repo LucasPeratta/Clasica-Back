@@ -1,3 +1,4 @@
+import { log } from "console";
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 
@@ -7,16 +8,26 @@ export const addPax = async (req: Request, res: Response) => {
     const paxData = await prisma.pax.create({
       data: {
         firstname: pax.firstname,
-        middlename: pax.middlename,
         lastname: pax.lastname,
-        email: pax.email,
+        dni: pax.dni,
+        passport: pax.passport,
         dob: pax.dob,
+        adress: pax.adress,
+        email: pax.email,
+        phoneNumber: pax.phoneNumber,
         obs: pax.obs,
       },
     });
-    res.json({ msg: "pax added SUCCESSFULLY", id: paxData.id });
-  } catch (error) {
-    res.json({ msg: "Error, couldn't add a pax ", error });
+    res.json({ msg: "Pax added successfully", id: paxData.id });
+  } catch (error: any) {
+    if (error.code === "P2002" && error.meta?.target?.includes("email")) {
+      console.log(error);
+      res
+        .status(400)
+        .json({ msg: "Error: Email already exists", errorCode: error.code });
+    } else {
+      res.status(500).json({ msg: "Error, could not add a Pax", error });
+    }
     console.log(error);
   }
 };
@@ -57,16 +68,26 @@ export const updatePax = async (req: Request, res: Response) => {
       },
       data: {
         firstname: updatedpax.firstname,
-        middlename: updatedpax.middlename,
         lastname: updatedpax.lastname,
-        email: updatedpax.email,
+        dni: updatedpax.dni,
+        passport: updatedpax.passport,
         dob: updatedpax.dob,
+        adress: updatedpax.adress,
+        email: updatedpax.email,
+        phoneNumber: updatedpax.phoneNumber,
         obs: updatedpax.obs,
       },
     });
     res.json({ msg: "pax updated SUCCESSFULLY", data: pax });
-  } catch (error) {
-    res.json({ msg: "Error, couldn't update pax", error });
+  } catch (error: any) {
+    if (error.code === "P2002" && error.meta?.target?.includes("email")) {
+      console.log(error);
+      res
+        .status(400)
+        .json({ msg: "Error: Email already exists", errorCode: error.code });
+    } else {
+      res.status(500).json({ msg: "Error, could not update a Pax", error });
+    }
     console.log(error);
   }
 };

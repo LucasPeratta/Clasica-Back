@@ -10,9 +10,9 @@ import {
 } from "../../controllers/paxController";
 
 router.get("/", getAllPax);
-router.post("/", addPax);
+router.post("/create", addPax);
 router.get("/:id", getPaxById);
-router.put("/:id", updatePax);
+router.put("/update/:id", updatePax);
 router.delete("/:id", deletePax);
 
 export default router;

@@ -16,21 +16,25 @@ model User {
 }
 
 model Pax {
-  id         String   @id @default(cuid())
-  firstname  String
-  middlename String
-  lastname   String
-  email      String   @unique
-  dob        DateTime
-  obs        String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @default(now()) @updatedAt
-  File       File[]   @relation("FilePax")
+  id          String   @id @default(cuid())
+  firstname   String
+  lastname    String
+  dni         String
+  passport    String
+  dob         DateTime
+  adress      String
+  email       String   @unique
+  phoneNumber String
+  obs         String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  File        File[]   @relation("FilePax")
 }
 
 model File {
   id        String    @id @default(cuid())
   obs       String
+  fare      String
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt
   clients   Pax[]     @relation("FilePax")
@@ -39,7 +43,7 @@ model File {
 
 model Service {
   id        String   @id @default(cuid())
-  cost      Decimal
+  neto      String
   currency  Currency
   provider  String
   obs       String

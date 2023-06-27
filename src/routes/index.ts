@@ -13,7 +13,7 @@ import authRoutes from "./auth";
 router.use("/", authRoutes);
 
 // Add middleware to protect all routes
-router.use(protect);
+// router.use(protect);
 
 // Link all routers to the main router
 router.use("/pax", paxRoutes);

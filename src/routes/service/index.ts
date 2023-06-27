@@ -10,7 +10,7 @@ import {
 } from "../../controllers/serviceController";
 
 router.get("/", getAllService);
-router.post("/", addService);
+router.post("/create", addService);
 router.get("/:id", getServiceById);
 router.put("/:id", updateService);
 router.delete("/:id", deleteService);

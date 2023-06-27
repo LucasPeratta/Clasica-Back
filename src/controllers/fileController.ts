@@ -7,6 +7,7 @@ export const addFile = async (req: Request, res: Response) => {
     const fileData = await prisma.file.create({
       data: {
         obs: file.obs,
+        fare: file.fare,
       },
     });
     res.json({ msg: "file added SUCCESSFULLY", id: fileData.id });
@@ -54,6 +55,7 @@ export const updateFile = async (req: Request, res: Response) => {
       },
       data: {
         obs: updatefile.obs,
+        fare: updatefile.fare,
       },
     });
     res.json({ msg: "file updated SUCCESSFULLY", data: file });
