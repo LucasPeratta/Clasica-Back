@@ -7,7 +7,10 @@ export const addFile = async (req: Request, res: Response) => {
     const fileData = await prisma.file.create({
       data: {
         obs: file.obs,
-        fare: file.fare,
+        precioNetoTotal: file.precioNetoTotal,
+        tarifaTotal: file.tarifaTotal,
+        destino: file.destino,
+        fechaSalida: file.fechaSalida,
       },
     });
     res.json({ msg: "file added SUCCESSFULLY", id: fileData.id });
@@ -36,6 +39,10 @@ export const getFileById = async (req: Request, res: Response) => {
       where: {
         id: fileId,
       },
+      include: {
+        clients: true,
+        services: true,
+      },
     });
 
     res.json({ msg: "file retrieved SUCCESSFULLY", data: file });
@@ -55,7 +62,10 @@ export const updateFile = async (req: Request, res: Response) => {
       },
       data: {
         obs: updatefile.obs,
-        fare: updatefile.fare,
+        tarifaTotal: updatefile.tarifaTotal,
+        precioNetoTotal: updatefile.precioNetoTotal,
+        destino: updatefile.destino,
+        fechaSalida: updatefile.fechaSalida,
       },
     });
     res.json({ msg: "file updated SUCCESSFULLY", data: file });

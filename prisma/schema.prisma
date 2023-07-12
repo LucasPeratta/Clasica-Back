@@ -32,24 +32,28 @@ model Pax {
 }
 
 model File {
-  id        String    @id @default(cuid())
-  obs       String
-  fare      String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
-  clients   Pax[]     @relation("FilePax")
-  services  Service[] @relation("FileService")
+  id              String    @id @default(cuid())
+  obs             String
+  precioNetoTotal String
+  tarifaTotal     String
+  destino         String
+  fechaSalida     DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+  clients         Pax[]     @relation("FilePax")
+  services        Service[] @relation("FileService")
 }
 
 model Service {
-  id        String   @id @default(cuid())
-  neto      String
-  currency  Currency
-  provider  String
-  obs       String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  File      File[]   @relation("FileService")
+  id         String   @id @default(cuid())
+  provider   String
+  precioNeto String
+  tarifa     String
+  currency   Currency
+  obs        String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+  File       File[]   @relation("FileService")
 }
 
 enum Currency {

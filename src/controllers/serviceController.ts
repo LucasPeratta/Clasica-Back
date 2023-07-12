@@ -6,9 +6,10 @@ export const addService = async (req: Request, res: Response) => {
   try {
     const serviceData = await prisma.service.create({
       data: {
-        neto: service.neto,
-        currency: service.currency,
         provider: service.provider,
+        precioNeto: service.precioNeto,
+        tarifa: service.tarifa,
+        currency: service.currency,
         obs: service.obs,
       },
     });
@@ -54,7 +55,9 @@ export const updateService = async (req: Request, res: Response) => {
         id: serviceId,
       },
       data: {
-        neto: updatedservice.neto,
+        precioNeto: updatedservice.precioNeto,
+        tarifa: updatedservice.tarifa,
+
         currency: updatedservice.currency,
         provider: updatedservice.provider,
         obs: updatedservice.obs,
