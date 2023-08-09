@@ -1,25 +1,6 @@
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 
-export const addFile = async (req: Request, res: Response) => {
-  const file = req.body;
-  try {
-    const fileData = await prisma.file.create({
-      data: {
-        obs: file.obs,
-        precioNetoTotal: file.precioNetoTotal,
-        tarifaTotal: file.tarifaTotal,
-        destino: file.destino,
-        fechaSalida: file.fechaSalida,
-      },
-    });
-    res.json({ msg: "file added SUCCESSFULLY", id: fileData.id });
-  } catch (error) {
-    res.json({ msg: "Error, couldn't add a file ", error });
-    console.log(error);
-  }
-};
-
 export const getAllFile = async (req: Request, res: Response) => {
   try {
     const files = await prisma.file.findMany({
@@ -52,29 +33,6 @@ export const getFileById = async (req: Request, res: Response) => {
   }
 };
 
-export const updateFile = async (req: Request, res: Response) => {
-  const fileId = req.params.id;
-  const updatefile = req.body;
-  try {
-    const file = await prisma.file.update({
-      where: {
-        id: fileId,
-      },
-      data: {
-        obs: updatefile.obs,
-        tarifaTotal: updatefile.tarifaTotal,
-        precioNetoTotal: updatefile.precioNetoTotal,
-        destino: updatefile.destino,
-        fechaSalida: updatefile.fechaSalida,
-      },
-    });
-    res.json({ msg: "file updated SUCCESSFULLY", data: file });
-  } catch (error) {
-    res.json({ msg: "Error, couldn't update file", error });
-    console.log(error);
-  }
-};
-
 export const deleteFile = async (req: Request, res: Response) => {
   const fileId = req.params.id;
   try {
@@ -90,77 +48,164 @@ export const deleteFile = async (req: Request, res: Response) => {
   }
 };
 
-export const addPaxToFile = async (req: Request, res: Response) => {
-  const { fileId, paxId } = req.body;
+export const addFile = async (req: Request, res: Response) => {
+  const { paxIds, serviceIds, formData } = req.body;
 
   try {
-    // Find the file and the pax
-    const file = await prisma.file.findUnique({
-      where: { id: fileId },
-      include: { clients: true },
+    // Calculate total tariff from the connected services
+    const services = await prisma.service.findMany({
+      where: { id: { in: serviceIds } },
     });
 
-    const pax = await prisma.pax.findUnique({
-      where: { id: paxId },
+    const totalTariff = services.reduce(
+      (total, service) => total + parseFloat(service.tarifa),
+      0
+    );
+    const totalPrecioNeto = services.reduce(
+      (total, service) => total + parseFloat(service.precioNeto),
+      0
+    );
+
+    // Create the file with calculated total tariff
+    const fileData = await prisma.file.create({
+      data: {
+        obs: formData.obs,
+        precioNetoTotal: totalPrecioNeto.toString(),
+        tarifaTotal: totalTariff.toString(), // Convert back to string if needed
+        destino: formData.destino,
+        fechaSalida: formData.fechaSalida,
+        clients: {
+          connect: [...paxIds.map((paxId: string) => ({ id: paxId }))],
+        },
+        services: {
+          connect: [
+            ...serviceIds.map((serviceId: string) => ({ id: serviceId })),
+          ],
+        },
+      },
     });
 
-    if (!file || !pax) {
-      return res.status(400).json({ msg: "File or Pax not found" });
-    }
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    // Add the pax to the file
-    const updatedFile = await prisma.file.update({
-      where: { id: fileId },
-      data: { clients: { connect: { id: paxId } } },
-    });
-
-    res.json({
-      msg: `Pax with id ${paxId} added to file with id ${fileId} successfully`,
-      data: updatedFile,
+    res.status(200).json({
+      msg: "File added successfully",
+      id: fileData.id,
     });
   } catch (error) {
     console.log(error);
-    res.status(500).json({ msg: "Error adding pax to file", error });
+    res.json({ msg: "Error, couldn't add a file ", error });
   }
 };
 
-export const addServiceToFile = async (req: Request, res: Response) => {
-  const { fileId, serviceId } = req.body;
+export const updateFile = async (req: Request, res: Response) => {
+  const fileId = req.params.id;
+  const updateData = req.body;
 
   try {
-    // Find the file and the service
     const file = await prisma.file.findUnique({
       where: { id: fileId },
-      include: { services: true },
+      include: { clients: true, services: true },
     });
 
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
+    if (!file) {
+      return res.status(404).json({ msg: "Archivo no encontrado" });
+    }
+
+    const { formData, paxIds, serviceIds } = updateData;
+
+    // Calculate total tariff from the connected services
+    const services = await prisma.service.findMany({
+      where: {
+        id: { in: serviceIds || file.services.map((service) => service.id) },
+      },
     });
 
-    if (!file || !service) {
-      return res.status(400).json({ msg: "File or Service not found" });
+    const totalTariff = services.reduce(
+      (total, service) => total + parseFloat(service.tarifa),
+      0
+    );
+
+    // Calculate total net price from the connected services
+    const totalNetPrice = services.reduce(
+      (total, service) => total + parseFloat(service.precioNeto),
+      0
+    );
+
+    // Update file data
+    if (formData) {
+      await prisma.file.update({
+        where: { id: fileId },
+        data: {
+          obs: formData.obs,
+          tarifaTotal: totalTariff.toString(),
+          precioNetoTotal: totalNetPrice.toString(),
+          destino: formData.destino,
+          fechaSalida: formData.fechaSalida,
+        },
+      });
+    }
+    // Update Paxs
+    if (paxIds) {
+      const existingPaxIds = file.clients.map((client) => client.id);
+      const newPaxIdsToAdd = paxIds.filter(
+        (paxId: string) => !existingPaxIds.includes(paxId)
+      );
+      const paxIdsToRemove = existingPaxIds.filter(
+        (existingPaxId) => !paxIds.includes(existingPaxId)
+      );
+
+      if (newPaxIdsToAdd.length > 0 || paxIdsToRemove.length > 0) {
+        await prisma.file.update({
+          where: { id: fileId },
+          data: {
+            clients: {
+              connect: newPaxIdsToAdd.map((paxId: string) => ({ id: paxId })),
+              disconnect: paxIdsToRemove.map((paxId) => ({ id: paxId })),
+            },
+          },
+        });
+      }
     }
 
-    // Check if the service is already added to the file
-    if (file.services.some((s) => s.id === serviceId)) {
-      return res.status(400).json({ msg: "Service already added to file" });
+    // Update Services
+    if (serviceIds) {
+      const existingServiceIds = file.services.map((service) => service.id);
+      const newServiceIdsToAdd = serviceIds.filter(
+        (serviceId: string) => !existingServiceIds.includes(serviceId)
+      );
+      const serviceIdsToRemove = existingServiceIds.filter(
+        (existingServiceId) => !serviceIds.includes(existingServiceId)
+      );
+
+      if (newServiceIdsToAdd.length > 0 || serviceIdsToRemove.length > 0) {
+        await prisma.file.update({
+          where: { id: fileId },
+          data: {
+            services: {
+              connect: newServiceIdsToAdd.map((serviceId: string) => ({
+                id: serviceId,
+              })),
+              disconnect: serviceIdsToRemove.map((serviceId) => ({
+                id: serviceId,
+              })),
+            },
+          },
+        });
+      }
     }
 
-    // Add the service to the file
-    const updatedFile = await prisma.file.update({
+    // Get updated file data
+    const updatedFileData = await prisma.file.findUnique({
       where: { id: fileId },
-      data: { services: { connect: { id: serviceId } } },
+      include: { clients: true, services: true },
     });
 
     res.json({
-      msg: `Service with id ${serviceId} added to file with id ${fileId} successfully`,
-      data: updatedFile,
+      msg: `Datos actualizados en el archivo con ID ${fileId} exitosamente`,
+      data: updatedFileData,
     });
   } catch (error) {
+    res
+      .status(500)
+      .json({ msg: "Error al actualizar los datos en el archivo", error });
     console.log(error);
-    res.status(500).json({ msg: "Error adding service to file", error });
   }
 };

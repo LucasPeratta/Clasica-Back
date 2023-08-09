@@ -3,6 +3,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as JwtStrategy, ExtractJwt } from "passport-jwt";
 import bcrypt from "bcrypt";
 import { prisma } from "../db";
+import { log } from "console";
 
 // Configuración de Passport LOGIN
 passport.use(
@@ -13,6 +14,8 @@ passport.use(
       passReqToCallback: true,
     },
     async (req, email, password, done) => {
+      console.log(email, password);
+
       try {
         // Buscar el usuario en la base de datos
         const user = await prisma.user.findUnique({ where: { email } });

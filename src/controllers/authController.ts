@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from "express";
-import { prisma } from "../db/index";
 import passport from "passport";
 import jwt from "jsonwebtoken";
 import "../passport/index";
