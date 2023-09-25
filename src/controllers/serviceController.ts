@@ -1,3 +1,4 @@
+import { log } from "console";
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 
@@ -22,7 +23,9 @@ export const addService = async (req: Request, res: Response) => {
 
 export const getAllService = async (req: Request, res: Response) => {
   try {
-    const services = await prisma.service.findMany();
+    const services = await prisma.service.findMany({
+      where: { deleted_at: null },
+    });
     res.json({ services });
   } catch (error) {
     res.json({ msg: "Error, couldn't retrieve services", error });
@@ -33,9 +36,10 @@ export const getAllService = async (req: Request, res: Response) => {
 export const getServiceById = async (req: Request, res: Response) => {
   const serviceId = req.params.id;
   try {
-    const service = await prisma.service.findUnique({
+    const service = await prisma.service.findFirst({
       where: {
         id: serviceId,
+        deleted_at: null,
       },
     });
 
@@ -57,12 +61,12 @@ export const updateService = async (req: Request, res: Response) => {
       data: {
         precioNeto: updatedservice.precioNeto,
         tarifa: updatedservice.tarifa,
-
         currency: updatedservice.currency,
         provider: updatedservice.provider,
         obs: updatedservice.obs,
       },
     });
+
     res.json({ msg: "service updated SUCCESSFULLY", data: service });
   } catch (error) {
     res.json({ msg: "Error, couldn't update service", error });
@@ -81,6 +85,26 @@ export const deleteService = async (req: Request, res: Response) => {
     res.json({ msg: "service deleted SUCCESSFULLY" });
   } catch (error) {
     res.json({ msg: "Error, couldn't delete service", error });
+    console.log(error);
+  }
+};
+
+export const softDeleteService = async (req: Request, res: Response) => {
+  const serviceId = req.params.id;
+
+  try {
+    const service = await prisma.service.update({
+      where: {
+        id: serviceId,
+      },
+      data: {
+        deleted_at: new Date(),
+      },
+    });
+
+    res.json({ msg: "Service soft deleted successfully", data: service });
+  } catch (error) {
+    res.json({ msg: "Error, couldn't soft delete service", error });
     console.log(error);
   }
 };

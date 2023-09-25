@@ -25,7 +25,7 @@ model Pax {
   adress      String
   email       String   @unique
   phoneNumber String
-  obs         String
+  obs         String   @db.VarChar(300)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
   File        File[]   @relation("FilePax")
@@ -33,7 +33,7 @@ model Pax {
 
 model File {
   id              String    @id @default(cuid())
-  obs             String
+  obs             String    @db.VarChar(300)
   precioNetoTotal String
   tarifaTotal     String
   destino         String
@@ -45,15 +45,16 @@ model File {
 }
 
 model Service {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   provider   String
   precioNeto String
   tarifa     String
   currency   Currency
-  obs        String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @default(now()) @updatedAt
-  File       File[]   @relation("FileService")
+  obs        String    @db.VarChar(300)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  deleted_at DateTime?
+  File       File[]    @relation("FileService")
 }
 
 enum Currency {

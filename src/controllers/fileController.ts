@@ -1,3 +1,4 @@
+import { log } from "console";
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 
