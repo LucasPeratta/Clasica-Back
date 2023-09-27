@@ -3,7 +3,6 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as JwtStrategy, ExtractJwt } from "passport-jwt";
 import bcrypt from "bcrypt";
 import { prisma } from "../db";
-import { log } from "console";
 
 // Configuración de Passport LOGIN
 passport.use(

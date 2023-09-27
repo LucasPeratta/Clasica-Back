@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = "mysql://root@127.0.0.1:3306/clasica"
+  url      = env("DB_CONNECTION_STRING")
 }
 
 model User {
