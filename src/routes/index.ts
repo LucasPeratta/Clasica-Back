@@ -20,5 +20,6 @@ router.use("/pax", paxRoutes);
 router.use("/file", fileRoutes);
 router.use("/service", serviceRoutes);
 router.use("/user", userRoutes);
+router.use("/", authRoutes);
 
 export default router;

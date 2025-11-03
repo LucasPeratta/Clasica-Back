@@ -66,7 +66,7 @@ passport.use(
   )
 );
 
-const secretKey = process.env.SECRET_KEY;
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Configuración de Passport protected
 passport.use(
@@ -77,7 +77,7 @@ passport.use(
       // como un token de portador (Bearer token).
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       // Esta es la clave secreta que se utiliza para firmar el JWT.
-      secretOrKey: secretKey,
+      secretOrKey: JWT_SECRET,
     },
     async (jwtPayload, done) => {
       try {
