@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: clasica-back
+    env: node
+    buildCommand: npm install && npx prisma generate && npx prisma migrate deploy
+    startCommand: npm start
+    envVars:
+      - key: DB_CONNECTION_STRING
+        fromDatabase:
+          name: clasica-db
+          property: connectionString
+      - key: JWT_SECRET
+        value: peratta
+      - key: PORT
+        value: 3000
+      - key: CLOUDINARY_CLOUD_NAME
+        value: dhiazynes
+      - key: CLOUDINARY_API_KEY
+        value: 487372726558137
+      - key: CLOUDINARY_API_SECRET
+        value: b8uYXAJkqxStjVRcGiDZu0Bq1bw
+
+databases:
+  - name: clasica-db
+    plan: free
+    databaseName: clasica_moderna
+    user: clasica_user
