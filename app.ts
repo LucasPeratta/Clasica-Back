@@ -17,6 +17,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors(corsOptions));
 
 //routes
+app.get("/", (req, res) => {
+  res.json({ message: "Clasica Moderna API - Server is running!" });
+});
+
 app.use("/api", routes);
 
 app.listen(port, () => {
