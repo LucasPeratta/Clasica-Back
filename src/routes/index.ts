@@ -5,16 +5,16 @@ const router = express.Router();
 
 // Welcome route
 router.get("/", (req, res) => {
-  res.json({ 
-    message: "Clasica Moderna API", 
+  res.json({
+    message: "Clasica Moderna API",
     version: "1.0.0",
     endpoints: {
       auth: "/api/login, /api/register, /api/logout",
       pax: "/api/pax",
       file: "/api/file",
       service: "/api/service",
-      user: "/api/user"
-    }
+      user: "/api/user",
+    },
   });
 });
 
