@@ -180,19 +180,30 @@ export const updateFile = async (req: Request, res: Response) => {
       0
     );
 
-    // Update file data with calculated totals
-    await prisma.file.update({
-      where: { id: fileId },
-      data: {
-        nro: formData?.nro,
-        obs: formData?.obs,
-        tarifaTotal: totalTariff.toString(),
-        precioNetoTotal: totalNetPrice.toString(),
-        tarifaAlternativa: formData?.tarifaAlternativa,
-        destino: formData?.destino,
-        fechaSalida: formData?.fechaSalida,
-      },
-    });
+    // Update file data with calculated totals (formData cannot override these)
+    if (formData) {
+      await prisma.file.update({
+        where: { id: fileId },
+        data: {
+          nro: formData.nro,
+          obs: formData.obs,
+          tarifaTotal: totalTariff.toString(), // ALWAYS calculated, never from formData
+          precioNetoTotal: totalNetPrice.toString(), // ALWAYS calculated, never from formData
+          tarifaAlternativa: formData.tarifaAlternativa,
+          destino: formData.destino,
+          fechaSalida: formData.fechaSalida,
+        },
+      });
+    } else {
+      // If no formData, just update the totals
+      await prisma.file.update({
+        where: { id: fileId },
+        data: {
+          tarifaTotal: totalTariff.toString(),
+          precioNetoTotal: totalNetPrice.toString(),
+        },
+      });
+    }
 
     // Get updated file data
     const updatedFileData = await prisma.file.findUnique({
