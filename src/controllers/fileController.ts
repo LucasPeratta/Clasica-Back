@@ -114,39 +114,6 @@ export const updateFile = async (req: Request, res: Response) => {
 
     const { formData, paxIds, serviceIds } = updateData;
 
-    // Calculate total tariff from the connected services
-    const services = await prisma.service.findMany({
-      where: {
-        id: { in: serviceIds || file.services.map((service) => service.id) },
-      },
-    });
-
-    const totalTariff = services.reduce(
-      (total, service) => total + parseFloat(service.tarifa),
-      0
-    );
-
-    // Calculate total net price from the connected services
-    const totalNetPrice = services.reduce(
-      (total, service) => total + parseFloat(service.precioNeto),
-      0
-    );
-
-    // Update file data
-    if (formData) {
-      await prisma.file.update({
-        where: { id: fileId },
-        data: {
-          nro: formData.nro,
-          obs: formData.obs,
-          tarifaTotal: totalTariff.toString(),
-          precioNetoTotal: totalNetPrice.toString(),
-          tarifaAlternativa: formData.tarifaAlternativa,
-          destino: formData.destino,
-          fechaSalida: formData.fechaSalida,
-        },
-      });
-    }
     // Update Paxs
     if (paxIds) {
       const existingPaxIds = file.clients.map((client) => client.id);
@@ -170,7 +137,7 @@ export const updateFile = async (req: Request, res: Response) => {
       }
     }
 
-    // Update Services
+    // Update Services FIRST (before calculating totals)
     if (serviceIds) {
       const existingServiceIds = file.services.map((service) => service.id);
       const newServiceIdsToAdd = serviceIds.filter(
@@ -196,6 +163,36 @@ export const updateFile = async (req: Request, res: Response) => {
         });
       }
     }
+
+    // NOW calculate totals from the updated services
+    const updatedFile = await prisma.file.findUnique({
+      where: { id: fileId },
+      include: { services: true },
+    });
+
+    const totalTariff = updatedFile!.services.reduce(
+      (total, service) => total + parseFloat(service.tarifa),
+      0
+    );
+
+    const totalNetPrice = updatedFile!.services.reduce(
+      (total, service) => total + parseFloat(service.precioNeto),
+      0
+    );
+
+    // Update file data with calculated totals
+    await prisma.file.update({
+      where: { id: fileId },
+      data: {
+        nro: formData?.nro,
+        obs: formData?.obs,
+        tarifaTotal: totalTariff.toString(),
+        precioNetoTotal: totalNetPrice.toString(),
+        tarifaAlternativa: formData?.tarifaAlternativa,
+        destino: formData?.destino,
+        fechaSalida: formData?.fechaSalida,
+      },
+    });
 
     // Get updated file data
     const updatedFileData = await prisma.file.findUnique({
