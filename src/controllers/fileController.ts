@@ -70,9 +70,11 @@ export const addFile = async (req: Request, res: Response) => {
     // Create the file with calculated total tariff
     const fileData = await prisma.file.create({
       data: {
+        nro: formData.nro,
         obs: formData.obs,
         precioNetoTotal: totalPrecioNeto.toString(),
         tarifaTotal: totalTariff.toString(), // Convert back to string if needed
+        tarifaAlternativa: formData.tarifaAlternativa,
         destino: formData.destino,
         fechaSalida: formData.fechaSalida,
         clients: {
@@ -135,9 +137,11 @@ export const updateFile = async (req: Request, res: Response) => {
       await prisma.file.update({
         where: { id: fileId },
         data: {
+          nro: formData.nro,
           obs: formData.obs,
           tarifaTotal: totalTariff.toString(),
           precioNetoTotal: totalNetPrice.toString(),
+          tarifaAlternativa: formData.tarifaAlternativa,
           destino: formData.destino,
           fechaSalida: formData.fechaSalida,
         },

@@ -16,49 +16,68 @@ model User {
 }
 
 model Pax {
-  id          String    @id @default(cuid())
+  id          String     @id @default(cuid())
   firstname   String
   lastname    String
   dni         String?
   passport    String?
   dob         DateTime?
   adress      String?
-  email       String?   @unique
+  email       String?    @unique
   phoneNumber String?
-  obs         String?   @db.VarChar(300)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  File        File[]    @relation("FilePax")
+  obs         String?    @db.VarChar(300)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @default(now()) @updatedAt
+  File        File[]     @relation("FilePax")
+  photos      PaxPhoto[]
 }
 
 model File {
-  id              String    @id @default(cuid())
-  obs             String    @db.VarChar(300)
-  precioNetoTotal String
-  tarifaTotal     String
-  destino         String
-  fechaSalida     DateTime
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @default(now()) @updatedAt
-  clients         Pax[]     @relation("FilePax")
-  services        Service[] @relation("FileService")
+  id                String    @id @default(cuid())
+  nro               String?
+  obs               String?   @db.VarChar(300)
+  precioNetoTotal   String
+  tarifaTotal       String
+  tarifaAlternativa String?
+  destino           String
+  fechaSalida       DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now()) @updatedAt
+  clients           Pax[]     @relation("FilePax")
+  services          Service[] @relation("FileService")
 }
 
 model Service {
-  id         String    @id @default(cuid())
-  provider   String
-  precioNeto String
-  tarifa     String
-  currency   Currency
-  obs        String    @db.VarChar(300)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @default(now()) @updatedAt
-  deleted_at DateTime?
-  File       File[]    @relation("FileService")
+  id          String    @id @default(cuid())
+  nombre      String
+  provider    String
+  localizador String?
+  precioNeto  String
+  tarifa      String
+  currency    Currency
+  obs         String?   @db.VarChar(300)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  deleted_at  DateTime?
+  File        File[]    @relation("FileService")
 }
 
 enum Currency {
   USD
   PESOS
   EURO
+}
+
+model PaxPhoto {
+  id        String   @id @default(cuid())
+  url       String
+  filename  String
+  mimetype  String?
+  size      Int?
+  paxId     String
+  pax       Pax      @relation(fields: [paxId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([paxId])
 }

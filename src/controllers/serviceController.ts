@@ -7,7 +7,9 @@ export const addService = async (req: Request, res: Response) => {
   try {
     const serviceData = await prisma.service.create({
       data: {
+        nombre: service.nombre,
         provider: service.provider,
+        localizador: service.localizador,
         precioNeto: service.precioNeto,
         tarifa: service.tarifa,
         currency: service.currency,
@@ -59,10 +61,12 @@ export const updateService = async (req: Request, res: Response) => {
         id: serviceId,
       },
       data: {
+        nombre: updatedservice.nombre,
+        provider: updatedservice.provider,
+        localizador: updatedservice.localizador,
         precioNeto: updatedservice.precioNeto,
         tarifa: updatedservice.tarifa,
         currency: updatedservice.currency,
-        provider: updatedservice.provider,
         obs: updatedservice.obs,
       },
     });

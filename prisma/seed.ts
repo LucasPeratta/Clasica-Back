@@ -1,8 +1,22 @@
 // prisma/seed.ts
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcrypt";
 const prisma = new PrismaClient();
 
 async function main() {
+  // Crear usuario administrador por defecto
+  const hashedPassword = await bcrypt.hash("admin123", 10);
+  const adminUser = await prisma.user.upsert({
+    where: { email: "admin@clasica.com" },
+    update: {},
+    create: {
+      email: "admin@clasica.com",
+      password: hashedPassword,
+    },
+  });
+
+  console.log("✅ Usuario administrador creado: admin@clasica.com / admin123");
+
   const pax1 = await prisma.pax.upsert({
     where: { email: "lucasperatta@gmail.com" },
     update: {},
@@ -40,6 +54,7 @@ async function main() {
     update: {},
     create: {
       id: "srv1",
+      nombre: "Aéreo Internacional",
       provider: "ACME Travel",
       precioNeto: "100.00",
       tarifa: "150.00",
@@ -53,6 +68,7 @@ async function main() {
     update: {},
     create: {
       id: "srv2",
+      nombre: "Hotel 3 Estrellas",
       provider: "Hotel Sol",
       precioNeto: "50.00",
       tarifa: "80.00",
