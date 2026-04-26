@@ -10,6 +10,9 @@ import {
   addPhotoToPax,
   deletePhotoFromPax,
   getPaxPhotos,
+  addPdfToPax,
+  deletePdfFromPax,
+  getPaxPdfs,
 } from "../../controllers/paxController";
 import { upload } from "../../middlewares/upload";
 
@@ -23,5 +26,10 @@ router.delete("/:id", deletePax);
 router.get("/:id/photos", getPaxPhotos);
 router.post("/:id/photos", upload.any() as any, addPhotoToPax);
 router.delete("/:paxId/photos/:photoId", deletePhotoFromPax);
+
+// PDF management routes
+router.get("/:id/pdfs", getPaxPdfs);
+router.post("/:id/pdfs", upload.any() as any, addPdfToPax);
+router.delete("/:paxId/pdfs/:pdfId", deletePdfFromPax);
 
 export default router;

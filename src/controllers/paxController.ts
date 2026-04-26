@@ -67,10 +67,10 @@ export const addPax = async (req: Request, res: Response) => {
       await Promise.all(photoUploadPromises);
     }
 
-    // Get pax with photos
+    // Get pax with photos and pdfs
     const paxWithPhotos = await prisma.pax.findUnique({
       where: { id: paxData.id },
-      include: { photos: true },
+      include: { photos: true, pdfs: true },
     });
 
     res.json({
@@ -93,7 +93,7 @@ export const addPax = async (req: Request, res: Response) => {
 export const getAllPax = async (req: Request, res: Response) => {
   try {
     const paxs = await prisma.pax.findMany({
-      include: { photos: true },
+      include: { photos: true, pdfs: true },
     });
     res.json({ paxs });
   } catch (error) {
@@ -109,7 +109,7 @@ export const getPaxById = async (req: Request, res: Response) => {
       where: {
         id: paxId,
       },
-      include: { photos: true },
+      include: { photos: true, pdfs: true },
     });
 
     res.json({ msg: "pax retrieved SUCCESSFULLY", data: pax });
@@ -161,10 +161,10 @@ export const updatePax = async (req: Request, res: Response) => {
       await Promise.all(photoUploadPromises);
     }
 
-    // Get updated pax with photos
+    // Get updated pax with photos and pdfs
     const paxWithPhotos = await prisma.pax.findUnique({
       where: { id: pax.id },
-      include: { photos: true },
+      include: { photos: true, pdfs: true },
     });
 
     res.json({ msg: "pax updated SUCCESSFULLY", data: paxWithPhotos });
@@ -184,10 +184,10 @@ export const updatePax = async (req: Request, res: Response) => {
 export const deletePax = async (req: Request, res: Response) => {
   const paxId = req.params.id;
   try {
-    // Get pax with photos before deleting
+    // Get pax with photos and pdfs before deleting
     const pax = await prisma.pax.findUnique({
       where: { id: paxId },
-      include: { photos: true },
+      include: { photos: true, pdfs: true },
     });
 
     if (pax) {
@@ -274,7 +274,13 @@ export const deletePhotoFromPax = async (req: Request, res: Response) => {
       where: { id: photoId },
     });
 
-    res.json({ msg: "Photo deleted successfully" });
+    // Get updated pax with photos and pdfs
+    const paxWithPhotos = await prisma.pax.findUnique({
+      where: { id: paxId },
+      include: { photos: true, pdfs: true },
+    });
+
+    res.json({ msg: "Photo deleted successfully", data: paxWithPhotos });
   } catch (error) {
     res.status(500).json({ msg: "Error deleting photo", error });
     console.log(error);
@@ -293,6 +299,108 @@ export const getPaxPhotos = async (req: Request, res: Response) => {
     res.json({ data: photos });
   } catch (error) {
     res.status(500).json({ msg: "Error retrieving photos", error });
+    console.log(error);
+  }
+};
+
+// Add PDFs to existing Pax (up to 10)
+export const addPdfToPax = async (req: Request, res: Response) => {
+  const paxId = req.params.id;
+  const files = req.files as Express.Multer.File[];
+
+  try {
+    if (!files || files.length === 0) {
+      return res.status(400).json({ msg: "No files provided" });
+    }
+
+    // Check current PDF count
+    const existingPdfs = await prisma.paxPdf.findMany({
+      where: { paxId },
+    });
+
+    if (existingPdfs.length + files.length > 10) {
+      return res.status(400).json({
+        msg: `Cannot add more PDFs. Maximum 10 PDFs allowed. Currently has ${existingPdfs.length}.`,
+      });
+    }
+
+    // Upload PDFs
+    const pdfUploadPromises = files.map(async (file) => {
+      const { url, filename } = await uploadToCloudinary(file);
+      return prisma.paxPdf.create({
+        data: {
+          url,
+          filename,
+          mimetype: file.mimetype,
+          size: file.size,
+          paxId,
+        },
+      });
+    });
+
+    const pdfs = await Promise.all(pdfUploadPromises);
+
+    res.json({
+      msg: "PDFs added successfully",
+      data: pdfs,
+    });
+  } catch (error) {
+    res.status(500).json({ msg: "Error uploading PDFs", error });
+    console.log(error);
+  }
+};
+
+// Delete specific PDF from Pax
+export const deletePdfFromPax = async (req: Request, res: Response) => {
+  const { paxId, pdfId } = req.params;
+
+  try {
+    // Get PDF info
+    const pdf = await prisma.paxPdf.findUnique({
+      where: { id: pdfId },
+    });
+
+    if (!pdf) {
+      return res.status(404).json({ msg: "PDF not found" });
+    }
+
+    if (pdf.paxId !== paxId) {
+      return res.status(400).json({ msg: "PDF does not belong to this Pax" });
+    }
+
+    // Delete from Cloudinary
+    await deleteFromCloudinary(pdf.filename);
+
+    // Delete from database
+    await prisma.paxPdf.delete({
+      where: { id: pdfId },
+    });
+
+    // Get updated pax with photos and pdfs
+    const paxWithData = await prisma.pax.findUnique({
+      where: { id: paxId },
+      include: { photos: true, pdfs: true },
+    });
+
+    res.json({ msg: "PDF deleted successfully", data: paxWithData });
+  } catch (error) {
+    res.status(500).json({ msg: "Error deleting PDF", error });
+    console.log(error);
+  }
+};
+
+// Get all PDFs for a Pax
+export const getPaxPdfs = async (req: Request, res: Response) => {
+  const paxId = req.params.id;
+
+  try {
+    const pdfs = await prisma.paxPdf.findMany({
+      where: { paxId },
+    });
+
+    res.json({ data: pdfs });
+  } catch (error) {
+    res.status(500).json({ msg: "Error retrieving PDFs", error });
     console.log(error);
   }
 };

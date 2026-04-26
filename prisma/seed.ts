@@ -59,6 +59,7 @@ async function main() {
       precioNeto: "100.00",
       tarifa: "150.00",
       currency: "USD",
+      type: "AEREO",
       obs: "Servicio aéreo",
     },
   });
@@ -73,6 +74,7 @@ async function main() {
       precioNeto: "50.00",
       tarifa: "80.00",
       currency: "PESOS",
+      type: "HOTEL",
       obs: "Alojamiento 3 noches",
     },
   });

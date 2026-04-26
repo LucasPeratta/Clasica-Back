@@ -9,7 +9,22 @@ const port = process.env.PORT;
 app.set("port", port);
 
 const corsOptions = {
-  origin: "*",
+  origin: function (origin: any, callback: any) {
+    const allowedOrigins = [
+      "http://localhost:3000", // Desarrollo local
+      "http://localhost:3001", // Si usas otro puerto
+      process.env.FRONTEND_URL, // Vercel o tu dominio de producción
+    ].filter(Boolean); // Elimina undefined
+
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS not allowed"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 };
 
 app.use(express.json());

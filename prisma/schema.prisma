@@ -30,6 +30,7 @@ model Pax {
   updatedAt   DateTime   @default(now()) @updatedAt
   File        File[]     @relation("FilePax")
   photos      PaxPhoto[]
+  pdfs        PaxPdf[]
 }
 
 model File {
@@ -45,27 +46,36 @@ model File {
   updatedAt         DateTime  @default(now()) @updatedAt
   clients           Pax[]     @relation("FilePax")
   services          Service[] @relation("FileService")
+  pdfs              FilePdf[]
 }
 
 model Service {
-  id          String    @id @default(cuid())
+  id          String      @id @default(cuid())
   nombre      String
   provider    String
   localizador String?
   precioNeto  String
   tarifa      String
   currency    Currency
-  obs         String?   @db.VarChar(300)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
+  type        ServiceType
+  obs         String?     @db.VarChar(300)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @default(now()) @updatedAt
   deleted_at  DateTime?
-  File        File[]    @relation("FileService")
+  File        File[]      @relation("FileService")
 }
 
 enum Currency {
   USD
   PESOS
   EURO
+}
+
+enum ServiceType {
+  AEREO
+  HOTEL
+  EXCURSION
+  TRASLADO
 }
 
 model PaxPhoto {
@@ -80,4 +90,32 @@ model PaxPhoto {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@index([paxId])
+}
+
+model PaxPdf {
+  id        String   @id @default(cuid())
+  url       String
+  filename  String
+  mimetype  String?
+  size      Int?
+  paxId     String
+  pax       Pax      @relation(fields: [paxId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([paxId])
+}
+
+model FilePdf {
+  id        String   @id @default(cuid())
+  url       String
+  filename  String
+  mimetype  String?
+  size      Int?
+  fileId    String
+  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([fileId])
 }

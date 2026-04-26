@@ -1,11 +1,34 @@
 import { log } from "console";
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
+import cloudinary from "../config/cloudinary";
+
+// Helper function to upload file to Cloudinary
+const uploadToCloudinary = (
+  file: Express.Multer.File,
+  folder: string = "files"
+): Promise<{ url: string; filename: string }> => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder },
+      (error, result) => {
+        if (error) return reject(error);
+        if (result) {
+          resolve({
+            url: result.secure_url,
+            filename: result.public_id,
+          });
+        }
+      }
+    );
+    uploadStream.end(file.buffer);
+  });
+};
 
 export const getAllFile = async (req: Request, res: Response) => {
   try {
     const files = await prisma.file.findMany({
-      include: { clients: true, services: true },
+      include: { clients: true, services: true, pdfs: true },
     });
     res.json({ files });
   } catch (error) {
@@ -24,6 +47,7 @@ export const getFileById = async (req: Request, res: Response) => {
       include: {
         clients: true,
         services: true,
+        pdfs: true,
       },
     });
 
@@ -208,7 +232,7 @@ export const updateFile = async (req: Request, res: Response) => {
     // Get updated file data
     const updatedFileData = await prisma.file.findUnique({
       where: { id: fileId },
-      include: { clients: true, services: true },
+      include: { clients: true, services: true, pdfs: true },
     });
 
     res.json({
@@ -219,6 +243,108 @@ export const updateFile = async (req: Request, res: Response) => {
     res
       .status(500)
       .json({ msg: "Error al actualizar los datos en el archivo", error });
+    console.log(error);
+  }
+};
+
+// Add PDFs to existing File (up to 10)
+export const addPdfToFile = async (req: Request, res: Response) => {
+  const fileId = req.params.id;
+  const files = req.files as Express.Multer.File[];
+
+  try {
+    if (!files || files.length === 0) {
+      return res.status(400).json({ msg: "No files provided" });
+    }
+
+    // Check current PDF count
+    const existingPdfs = await prisma.filePdf.findMany({
+      where: { fileId },
+    });
+
+    if (existingPdfs.length + files.length > 10) {
+      return res.status(400).json({
+        msg: `Cannot add more PDFs. Maximum 10 PDFs allowed. Currently has ${existingPdfs.length}.`,
+      });
+    }
+
+    // Upload PDFs to Cloudinary
+    const pdfUploadPromises = files.map(async (file) => {
+      const { url, filename } = await uploadToCloudinary(file, "file_pdfs");
+      return prisma.filePdf.create({
+        data: {
+          url,
+          filename,
+          mimetype: file.mimetype,
+          size: file.size,
+          fileId,
+        },
+      });
+    });
+
+    const pdfs = await Promise.all(pdfUploadPromises);
+
+    res.json({
+      msg: "PDFs added successfully",
+      data: pdfs,
+    });
+  } catch (error) {
+    res.status(500).json({ msg: "Error uploading PDFs", error });
+    console.log(error);
+  }
+};
+
+// Delete specific PDF from File
+export const deletePdfFromFile = async (req: Request, res: Response) => {
+  const { fileId, pdfId } = req.params;
+
+  try {
+    // Get PDF info
+    const pdf = await prisma.filePdf.findUnique({
+      where: { id: pdfId },
+    });
+
+    if (!pdf) {
+      return res.status(404).json({ msg: "PDF not found" });
+    }
+
+    if (pdf.fileId !== fileId) {
+      return res.status(400).json({ msg: "PDF does not belong to this File" });
+    }
+
+    // Delete from Cloudinary
+    await cloudinary.uploader.destroy(pdf.filename);
+
+    // Delete from database
+    await prisma.filePdf.delete({
+      where: { id: pdfId },
+    });
+
+    // Get updated file data
+    const fileWithData = await prisma.file.findUnique({
+      where: { id: fileId },
+      include: { clients: true, services: true, pdfs: true },
+    });
+
+    res.json({ msg: "PDF deleted successfully", data: fileWithData });
+  } catch (error) {
+    res.status(500).json({ msg: "Error deleting PDF", error });
+    console.log(error);
+  }
+};
+
+// Get all PDFs for a File
+export const getFilePdfs = async (req: Request, res: Response) => {
+  const fileId = req.params.id;
+
+  try {
+    const pdfs = await prisma.filePdf.findMany({
+      where: { fileId },
+    });
+
+    res.json({ data: pdfs });
+  } catch (error) {
+    res.status(500).json({ msg: "Error retrieving PDFs", error });
     console.log(error);
   }
 };

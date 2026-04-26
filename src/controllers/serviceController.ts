@@ -13,6 +13,7 @@ export const addService = async (req: Request, res: Response) => {
         precioNeto: service.precioNeto,
         tarifa: service.tarifa,
         currency: service.currency,
+        type: service.type,
         obs: service.obs,
       },
     });
@@ -67,6 +68,7 @@ export const updateService = async (req: Request, res: Response) => {
         precioNeto: updatedservice.precioNeto,
         tarifa: updatedservice.tarifa,
         currency: updatedservice.currency,
+        type: updatedservice.type,
         obs: updatedservice.obs,
       },
     });
