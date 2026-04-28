@@ -11,10 +11,11 @@ app.set("port", port);
 const corsOptions = {
   origin: function (origin: any, callback: any) {
     const allowedOrigins = [
-      "http://localhost:3000", // Desarrollo local
-      "http://localhost:3001", // Si usas otro puerto
-      process.env.FRONTEND_URL, // Vercel o tu dominio de producción
-    ].filter(Boolean); // Elimina undefined
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "https://clasica-front-vecel.vercel.app",
+      process.env.FRONTEND_URL,
+    ].filter(Boolean);
 
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
