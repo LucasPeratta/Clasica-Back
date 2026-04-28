@@ -21,6 +21,8 @@ services:
         value: 487372726558137
       - key: CLOUDINARY_API_SECRET
         value: b8uYXAJkqxStjVRcGiDZu0Bq1bw
+      - key: FRONTEND_URL
+        value: https://clasica-front-vecel.vercel.app
 
 databases:
   - name: clasica-db
