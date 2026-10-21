@@ -4,23 +4,27 @@ services:
     env: node
     nodeVersion: 20
     plan: free
-    buildCommand: npm install && npx prisma generate && npx prisma db push --accept-data-loss && npx prisma db seed
+    # db push without --accept-data-loss: if a schema change would delete data, the build fails instead
+    # No seed here: it re-creates test data and the default admin on every deploy
+    buildCommand: npm install && npx prisma generate && npx prisma db push
     startCommand: npm start
+    # Secrets are not stored here (this repo is public): sync: false means
+    # the value is set by hand in the Render dashboard (Environment tab)
     envVars:
       - key: DB_CONNECTION_STRING
         fromDatabase:
           name: clasica-db
           property: connectionString
       - key: JWT_SECRET
-        value: peratta
+        sync: false
       - key: PORT
         value: 3000
       - key: CLOUDINARY_CLOUD_NAME
-        value: dhiazynes
+        sync: false
       - key: CLOUDINARY_API_KEY
-        value: 487372726558137
+        sync: false
       - key: CLOUDINARY_API_SECRET
-        value: b8uYXAJkqxStjVRcGiDZu0Bq1bw
+        sync: false
       - key: FRONTEND_URL
         value: https://clasica-front-vecel.vercel.app
 

@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import passport from "passport";
 import jwt from "jsonwebtoken";
-import "../passport/index";
+import { JWT_SECRET } from "../passport/index";
 
-const secretKey = process.env.SECRET_KEY || "defaultSecretKey";
+const secretKey = JWT_SECRET as string;
 
 export const login = async (
   req: Request,
@@ -24,8 +24,9 @@ export const login = async (
       const token = jwt.sign({ id: user.id, email: user.email }, secretKey, {
         expiresIn: "1d",
       });
-      // Agregar el token a la respuesta JSON
-      return res.json({ user, token });
+      // Agregar el token a la respuesta JSON (sin la contraseña)
+      const { password, ...safeUser } = user;
+      return res.json({ user: safeUser, token });
     }
   )(req, res, next);
 };

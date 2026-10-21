@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DB_CONNECTION_STRING")
 }
 
@@ -21,7 +21,9 @@ model Pax {
   firstname   String
   lastname    String
   dni         String?
+  dniVto      DateTime?
   passport    String?
+  passportVto DateTime?
   dob         DateTime?
   adress      String?
   email       String?    @unique
@@ -36,6 +38,10 @@ model Pax {
 
 model File {
   id                String    @id @default(cuid())
+  // Automatic correlative number per year of creation, shown as "55-2026"
+  numero            Int?
+  anio              Int?
+  // Free optional reference (shown as "Referencia" in the app)
   nro               String?
   obs               String?   @db.VarChar(300)
   precioNetoTotal   String
@@ -48,6 +54,8 @@ model File {
   clients           Pax[]     @relation("FilePax")
   services          Service[] @relation("FileService")
   pdfs              FilePdf[]
+
+  @@unique([anio, numero])
 }
 
 model Service {
@@ -60,6 +68,8 @@ model Service {
   currency    Currency
   type        ServiceType @default(AEREO)
   obs         String?     @db.VarChar(300)
+  fechaInicio DateTime?
+  fechaFin    DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @default(now()) @updatedAt
   deleted_at  DateTime?
@@ -94,29 +104,31 @@ model PaxPhoto {
 }
 
 model PaxPdf {
-  id        String   @id @default(cuid())
-  url       String
-  filename  String
-  mimetype  String?
-  size      Int?
-  paxId     String
-  pax       Pax      @relation(fields: [paxId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  id           String   @id @default(cuid())
+  url          String
+  filename     String
+  originalName String?
+  mimetype     String?
+  size         Int?
+  paxId        String
+  pax          Pax      @relation(fields: [paxId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
   @@index([paxId])
 }
 
 model FilePdf {
-  id        String   @id @default(cuid())
-  url       String
-  filename  String
-  mimetype  String?
-  size      Int?
-  fileId    String
-  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  id           String   @id @default(cuid())
+  url          String
+  filename     String
+  originalName String?
+  mimetype     String?
+  size         Int?
+  fileId       String
+  file         File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
   @@index([fileId])
 }

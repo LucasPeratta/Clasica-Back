@@ -10,8 +10,9 @@ import {
   addPdfToFile,
   deletePdfFromFile,
   getFilePdfs,
+  getFilePdfUrl,
 } from "../../controllers/fileController";
-import { upload } from "../../middlewares/upload";
+import { uploadPdfs } from "../../middlewares/upload";
 
 router.get("/", getAllFile);
 router.post("/create", addFile);
@@ -22,7 +23,8 @@ router.patch("/soft-delete/:id", deleteFile);
 
 // PDF management routes
 router.get("/:id/pdfs", getFilePdfs);
-router.post("/:id/pdfs", upload.any() as any, addPdfToFile);
+router.post("/:id/pdfs", uploadPdfs, addPdfToFile);
+router.get("/:fileId/pdfs/:pdfId/url", getFilePdfUrl);
 router.delete("/:fileId/pdfs/:pdfId", deletePdfFromFile);
 
 export default router;

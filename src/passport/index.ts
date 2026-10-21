@@ -13,8 +13,6 @@ passport.use(
       passReqToCallback: true,
     },
     async (req, email, password, done) => {
-      console.log(email, password);
-
       try {
         // Buscar el usuario en la base de datos
         const user = await prisma.user.findUnique({ where: { email } });
@@ -66,7 +64,12 @@ passport.use(
   )
 );
 
-const JWT_SECRET = process.env.JWT_SECRET;
+// Same secret is used to sign (authController) and verify (jwt strategy) tokens
+export const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is not set");
+}
 
 // Configuración de Passport protected
 passport.use(

@@ -25,16 +25,16 @@ import serviceRoutes from "./service";
 import userRoutes from "./user";
 import authRoutes from "./auth";
 
+// Auth routes go before protect so login stays public (register is protected inside)
 router.use("/", authRoutes);
 
-// Add middleware to protect all routes
-// router.use(protect);
+// Everything below requires a valid token
+router.use(protect);
 
 // Link all routers to the main router
 router.use("/pax", paxRoutes);
 router.use("/file", fileRoutes);
 router.use("/service", serviceRoutes);
 router.use("/user", userRoutes);
-router.use("/", authRoutes);
 
 export default router;

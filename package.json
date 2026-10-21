@@ -9,7 +9,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "ts-node app.ts",
-    "dev": "nodemon app.ts"
+    "dev": "nodemon app.ts",
+    "change-password": "ts-node scripts/changePassword.ts",
+    "assign-file-numbers": "ts-node scripts/assignFileNumbers.ts"
   },
   "keywords": [],
   "author": "LUCAS PERATTA",
