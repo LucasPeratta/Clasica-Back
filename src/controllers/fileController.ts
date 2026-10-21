@@ -154,14 +154,21 @@ export const deleteFile = async (req: Request, res: Response) => {
     const pdfs = await prisma.filePdf.findMany({ where: { fileId } });
     await Promise.all(pdfs.map((pdf) => deletePdf(pdf.filename)));
 
-    await prisma.file.delete({
-      where: {
-        id: fileId,
-      },
-    });
+    // Its services belong only to this file: delete them (soft) together with it
+    await prisma.$transaction([
+      prisma.service.updateMany({
+        where: { File: { some: { id: fileId } } },
+        data: { deleted_at: new Date() },
+      }),
+      prisma.file.delete({
+        where: {
+          id: fileId,
+        },
+      }),
+    ]);
     res.json({ msg: "file deleted SUCCESSFULLY" });
   } catch (error) {
-    res.json({ msg: "Error, couldn't delete file", error });
+    res.status(500).json({ msg: "Error, couldn't delete file", error });
     console.log(error);
   }
 };
