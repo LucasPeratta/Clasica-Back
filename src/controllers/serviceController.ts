@@ -7,6 +7,7 @@ import {
   getPaginationParams,
   isPaginatedRequest,
 } from "../utils/pagination";
+import { fileNumberConditions } from "../utils/fileNumber";
 
 export const addService = async (req: Request, res: Response) => {
   const service = req.body;
@@ -44,14 +45,20 @@ export const getAllService = async (req: Request, res: Response) => {
 
     const { page, skip, take, terms } = getPaginationParams(req);
 
-    // Every search term must match the name, the provider or the locator
+    // Only services that belong to a file (a service always belongs to one; leftovers
+    // created without a file are hidden). Every search term must match the name, the
+    // provider, the locator or the file number ("55" / "55-2026").
     const where: Prisma.ServiceWhereInput = {
       deleted_at: null,
+      File: { some: {} },
       AND: terms.map((term) => ({
         OR: [
           { nombre: { contains: term } },
           { provider: { contains: term } },
           { localizador: { contains: term } },
+          ...fileNumberConditions(term).map((condition) => ({
+            File: { some: condition },
+          })),
         ],
       })),
     };
@@ -59,6 +66,9 @@ export const getAllService = async (req: Request, res: Response) => {
     const [services, total] = await prisma.$transaction([
       prisma.service.findMany({
         where,
+        include: {
+          File: { select: { id: true, numero: true, anio: true, destino: true } },
+        },
         orderBy: [{ createdAt: "desc" }, { id: "asc" }],
         skip,
         take,
@@ -80,6 +90,9 @@ export const getServiceById = async (req: Request, res: Response) => {
       where: {
         id: serviceId,
         deleted_at: null,
+      },
+      include: {
+        File: { select: { id: true, numero: true, anio: true, destino: true } },
       },
     });
 
@@ -138,12 +151,14 @@ export const softDeleteService = async (req: Request, res: Response) => {
   const serviceId = req.params.id;
 
   try {
+    // Deleting a service also removes it from its file (and from the file's totals)
     const service = await prisma.service.update({
       where: {
         id: serviceId,
       },
       data: {
         deleted_at: new Date(),
+        File: { set: [] },
       },
     });
 

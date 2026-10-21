@@ -297,6 +297,14 @@ export const updateFile = async (req: Request, res: Response) => {
           },
         });
       }
+
+      // A service always belongs to a file: removing it from the file deletes it (soft)
+      if (serviceIdsToRemove.length > 0) {
+        await prisma.service.updateMany({
+          where: { id: { in: serviceIdsToRemove } },
+          data: { deleted_at: new Date() },
+        });
+      }
     }
 
     // NOW calculate totals from the updated services
