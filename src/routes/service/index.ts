@@ -7,6 +7,7 @@ import {
   getServiceById,
   updateService,
   softDeleteService,
+  setServiceLiquidado,
 } from "../../controllers/serviceController";
 
 router.get("/", getAllService);
@@ -14,5 +15,6 @@ router.post("/create", addService);
 router.get("/:id", getServiceById);
 router.put("/:id", updateService);
 router.delete("/:id", softDeleteService);
+router.patch("/:id/liquidado", setServiceLiquidado);
 
 export default router;

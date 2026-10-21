@@ -152,3 +152,18 @@ export const softDeleteService = async (req: Request, res: Response) => {
     console.log(error);
   }
 };
+
+// PATCH /service/:id/liquidado { liquidado: boolean } — sent to the wholesaler for settlement
+export const setServiceLiquidado = async (req: Request, res: Response) => {
+  const liquidado = req.body?.liquidado === true;
+  try {
+    const service = await prisma.service.update({
+      where: { id: req.params.id },
+      data: { liquidado, liquidadoAt: liquidado ? new Date() : null },
+    });
+    res.json({ msg: "Service updated", data: service });
+  } catch (error) {
+    res.status(500).json({ msg: "Error, couldn't update service", error });
+    console.log(error);
+  }
+};

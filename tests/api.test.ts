@@ -263,6 +263,151 @@ test("files", async (t) => {
   });
 });
 
+test("pagos de clientes", async (t) => {
+  // Aéreo USD 1.200 + hotel USD 1.600 = USD 2.800, salida en 60 días
+  const newFileWithServices = async (fileData: Record<string, unknown> = {}) => {
+    const flight = await createService({ type: "AEREO", precioNeto: "1000", tarifa: "1200" });
+    const hotel = await createService({ type: "HOTEL", precioNeto: "1300", tarifa: "1600" });
+    return createFile({ fechaSalida: daysFromToday(60), ...fileData }, [flight, hotel]);
+  };
+  const pay = (fileId: string, data: Record<string, unknown>) =>
+    post(`/file/${fileId}/pagos`, { fecha: daysFromToday(0), medio: "TRANSFERENCIA", moneda: "USD", ...data });
+
+  await t.test("plan automático: seña = aéreos al crear, saldo 25 días antes de la salida", async () => {
+    const file = await newFileWithServices();
+    const { body } = await request(`/file/${file.id}/pagos`);
+    assert.equal(body.moneda, "USD");
+    assert.equal(body.total, 2800);
+    assert.deepEqual(body.cuotas.map((c: { concepto: string; importe: number }) => [c.concepto, c.importe]), [
+      ["Seña (aéreos)", 1200],
+      ["Saldo", 1600],
+    ]);
+    assert.equal(body.cuotas[0].diasParaVencer, 0);
+    assert.equal(body.cuotas[1].diasParaVencer, 35);
+    assert.equal(body.estado, "POR_VENCER"); // la seña vence hoy
+    assert.equal(body.falta, 2800);
+  });
+
+  await t.test("con tarifa alternativa se cobra eso (el saldo se ajusta)", async () => {
+    const file = await newFileWithServices({ tarifaAlternativa: "3000", tarifaAlternativaMoneda: "USD" });
+    const { body } = await request(`/file/${file.id}/pagos`);
+    assert.equal(body.total, 3000);
+    assert.equal(body.cuotas[1].importe, 1800);
+  });
+
+  await t.test("monedas mezcladas sin tarifa alternativa: pide definir la moneda", async () => {
+    const usd = await createService({ currency: "USD" });
+    const pesos = await createService({ currency: "PESOS" });
+    const file = await createFile({}, [usd, pesos]);
+    const { body } = await request(`/file/${file.id}/pagos`);
+    assert.equal(body.problema, "MIXED_CURRENCIES");
+    const res = await pay(file.id, { importe: 100 });
+    assert.equal(res.status, 400);
+    assert.match(res.body.msg, /tarifa alternativa/);
+  });
+
+  await t.test("los pagos se aplican primero a la seña y después al saldo", async () => {
+    const file = await newFileWithServices();
+    let res = await pay(file.id, { importe: 1000 });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.cuotas[0].estado, "PARCIAL");
+    assert.equal(res.body.cuotas[0].falta, 200);
+
+    res = await pay(file.id, { importe: 500 });
+    assert.equal(res.body.cuotas[0].estado, "PAGADA");
+    assert.equal(res.body.cuotas[1].pagado, 300);
+    assert.equal(res.body.cobrado, 1500);
+    assert.equal(res.body.falta, 1300);
+  });
+
+  await t.test("pago en pesos con tipo de cambio: se descuenta lo equivalente en dólares", async () => {
+    const file = await newFileWithServices();
+    const noRate = await pay(file.id, { moneda: "PESOS", importe: 1200000 });
+    assert.equal(noRate.status, 400);
+    assert.match(noRate.body.msg, /tipo de cambio/);
+
+    const res = await pay(file.id, { moneda: "PESOS", importe: 1200000, tipoCambio: 1000 });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.pagos[0].importeAplicado, 1200);
+    assert.equal(res.body.cuotas[0].estado, "PAGADA");
+  });
+
+  await t.test("corregir y borrar un pago", async () => {
+    const file = await newFileWithServices();
+    const created = await pay(file.id, { importe: 100, nota: "primero" });
+    const pagoId = created.body.pagos[0].id;
+
+    const updated = await put(`/file/${file.id}/pagos/${pagoId}`, {
+      fecha: daysFromToday(0), importe: 700, moneda: "USD", medio: "EFECTIVO", nota: "corregido",
+    });
+    assert.equal(updated.body.cobrado, 700);
+    assert.equal(updated.body.pagos[0].medio, "EFECTIVO");
+
+    const deleted = await request(`/file/${file.id}/pagos/${pagoId}`, { method: "DELETE" });
+    assert.equal(deleted.body.cobrado, 0);
+    assert.equal(deleted.body.pagos.length, 0);
+  });
+
+  await t.test("plan propio del administrador, validación y volver al automático", async () => {
+    const file = await newFileWithServices();
+    const bad = await put(`/file/${file.id}/plan`, { cuotas: [{ concepto: "", importe: 0 }] });
+    assert.equal(bad.status, 400);
+
+    const own = await put(`/file/${file.id}/plan`, {
+      cuotas: [
+        { concepto: "Seña", importe: 1500, vencimiento: daysFromToday(1) },
+        { concepto: "Cuota 2", importe: 650, vencimiento: daysFromToday(20) },
+        { concepto: "Cuota 3", importe: 650, vencimiento: daysFromToday(40) },
+      ],
+    });
+    assert.equal(own.status, 200);
+    assert.equal(own.body.planPersonalizado, true);
+    assert.equal(own.body.cuotas.length, 3);
+    assert.equal(own.body.planTotal, 2800);
+
+    const reset = await request(`/file/${file.id}/plan`, { method: "DELETE" });
+    assert.equal(reset.body.planPersonalizado, false);
+    assert.equal(reset.body.cuotas.length, 2);
+  });
+
+  await t.test("cobranzas: vencidos, esta semana y este mes", async () => {
+    // Salida en 10 días: el saldo venció hace 15 días
+    const overdue = await newFileWithServices({ destino: "CobranzaVencida", fechaSalida: daysFromToday(10) });
+    // Salida en 30 días: el saldo vence en 5 días
+    const soon = await newFileWithServices({ destino: "CobranzaSemana", fechaSalida: daysFromToday(30) });
+    await pay(overdue.id, { importe: 1200 });
+    await pay(soon.id, { importe: 1200 });
+    // Pagado completo: no aparece
+    const paid = await newFileWithServices({ destino: "CobranzaPagada" });
+    await pay(paid.id, { importe: 2800 });
+
+    const vencidos = await request("/cobranzas?filtro=vencidos&search=Cobranza");
+    assert.deepEqual(vencidos.body.data.map((f: { destino: string }) => f.destino), ["CobranzaVencida"]);
+    assert.equal(vencidos.body.data[0].falta, 1600);
+
+    const semana = await request("/cobranzas?filtro=semana&search=Cobranza");
+    assert.deepEqual(semana.body.data.map((f: { destino: string }) => f.destino), ["CobranzaSemana"]);
+
+    const todos = await request("/cobranzas?search=Cobranza");
+    assert.equal(todos.body.counts.todos, 2);
+    assert.ok(!todos.body.data.some((f: { destino: string }) => f.destino === "CobranzaPagada"));
+  });
+
+  await t.test("marcar un servicio como liquidado (y desmarcarlo)", async () => {
+    const serviceId = await createService();
+    let res = await request(`/service/${serviceId}/liquidado`, {
+      method: "PATCH", body: JSON.stringify({ liquidado: true }),
+    });
+    assert.equal(res.body.data.liquidado, true);
+    assert.ok(res.body.data.liquidadoAt);
+    res = await request(`/service/${serviceId}/liquidado`, {
+      method: "PATCH", body: JSON.stringify({ liquidado: false }),
+    });
+    assert.equal(res.body.data.liquidado, false);
+    assert.equal(res.body.data.liquidadoAt, null);
+  });
+});
+
 test("servicios", async (t) => {
   await t.test("la lista muestra a qué file pertenece y oculta los sueltos", async () => {
     const loose = await createService({ nombre: "Suelto", provider: "ProvLista" });

@@ -37,13 +37,13 @@ model Pax {
 }
 
 model File {
-  id                      String    @id @default(cuid())
+  id                      String      @id @default(cuid())
   // Automatic correlative number per year of creation, shown as "55-2026"
   numero                  Int?
   anio                    Int?
   // Free optional reference (shown as "Referencia" in the app)
   nro                     String?
-  obs                     String?   @db.VarChar(300)
+  obs                     String?     @db.VarChar(300)
   precioNetoTotal         String
   tarifaTotal             String
   // Price actually charged to the client (decided by the agency), in a single currency
@@ -51,13 +51,56 @@ model File {
   tarifaAlternativaMoneda Currency?
   destino                 String
   fechaSalida             DateTime
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @default(now()) @updatedAt
-  clients                 Pax[]     @relation("FilePax")
-  services                Service[] @relation("FileService")
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @default(now()) @updatedAt
+  clients                 Pax[]       @relation("FilePax")
+  services                Service[]   @relation("FileService")
   pdfs                    FilePdf[]
+  // Client payments. While planPersonalizado is false the plan is the automatic one
+  // (deposit = flights, balance 25 days before departure) and cuotas is not used
+  planPersonalizado       Boolean     @default(false)
+  cuotas                  FileCuota[]
+  pagos                   FilePago[]
 
   @@unique([anio, numero])
+}
+
+// Installment of a file's payment plan, in the file's charge currency
+model FileCuota {
+  id          String   @id @default(cuid())
+  fileId      String
+  file        File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  concepto    String
+  importe     Decimal  @db.Decimal(14, 2)
+  vencimiento DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([fileId])
+}
+
+// Payment received from the client. It can be made in another currency: then
+// tipoCambio is used and importeAplicado is what it covers in the file's charge currency
+model FilePago {
+  id              String        @id @default(cuid())
+  fileId          String
+  file            File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fecha           DateTime
+  importe         Decimal       @db.Decimal(14, 2)
+  moneda          Currency
+  tipoCambio      Decimal?      @db.Decimal(14, 4)
+  importeAplicado Decimal       @db.Decimal(14, 2)
+  medio           PaymentMethod
+  nota            String?       @db.VarChar(300)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
+
+  @@index([fileId])
+}
+
+enum PaymentMethod {
+  EFECTIVO
+  TRANSFERENCIA
 }
 
 model Service {
@@ -75,6 +118,9 @@ model Service {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @default(now()) @updatedAt
   deleted_at  DateTime?
+  // Sent to the wholesaler for settlement ("liquidado"); if not, the booking can be cancelled
+  liquidado   Boolean     @default(false)
+  liquidadoAt DateTime?
   File        File[]      @relation("FileService")
 }
 
