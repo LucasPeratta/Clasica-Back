@@ -1,8 +1,6 @@
-import { log } from "console";
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 import { Currency, Prisma } from "@prisma/client";
-import cloudinary from "../config/cloudinary";
 import {
   buildPage,
   getPaginationParams,
@@ -20,28 +18,6 @@ import {
   getPdfDownloadUrl,
   uploadPdf,
 } from "../utils/pdfStorage";
-
-// Helper function to upload file to Cloudinary
-const uploadToCloudinary = (
-  file: Express.Multer.File,
-  folder: string = "files"
-): Promise<{ url: string; filename: string }> => {
-  return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
-      { folder },
-      (error, result) => {
-        if (error) return reject(error);
-        if (result) {
-          resolve({
-            url: result.secure_url,
-            filename: result.public_id,
-          });
-        }
-      }
-    );
-    uploadStream.end(file.buffer);
-  });
-};
 
 // Alternative tariff (what is actually charged) and its currency. Only fields sent are
 // changed, so updates that don't include the currency keep the stored one.

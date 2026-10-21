@@ -6,7 +6,6 @@ import {
   getAllService,
   getServiceById,
   updateService,
-  deleteService,
   softDeleteService,
 } from "../../controllers/serviceController";
 

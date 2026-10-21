@@ -1,4 +1,3 @@
-import { log } from "console";
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 import { Prisma } from "@prisma/client";
@@ -128,21 +127,6 @@ export const updateService = async (req: Request, res: Response) => {
     res.json({ msg: "service updated SUCCESSFULLY", data: service });
   } catch (error) {
     res.status(500).json({ msg: "Error, couldn't update service", error });
-    console.log(error);
-  }
-};
-
-export const deleteService = async (req: Request, res: Response) => {
-  const serviceId = req.params.id;
-  try {
-    const service = await prisma.service.delete({
-      where: {
-        id: serviceId,
-      },
-    });
-    res.json({ msg: "service deleted SUCCESSFULLY" });
-  } catch (error) {
-    res.json({ msg: "Error, couldn't delete service", error });
     console.log(error);
   }
 };
