@@ -167,6 +167,17 @@ test("pasajeros", async (t) => {
     assert.equal(page2.body.data.length, 1);
   });
 
+  await t.test("el listado y el perfil traen solo los próximos viajes (para avisar de documentos)", async () => {
+    const pax = await prisma.pax.create({ data: { firstname: "Viajero", lastname: "Documentos" } });
+    await createFile({ destino: "Pasado", fechaSalida: daysFromToday(-10) }, [], [pax.id]);
+    await createFile({ destino: "Futuro", fechaSalida: daysFromToday(20) }, [], [pax.id]);
+
+    const list = await request("/pax?page=1&search=Documentos");
+    assert.deepEqual(list.body.data[0].File.map((f: { destino: string }) => f.destino), ["Futuro"]);
+    const profile = await request(`/pax/${pax.id}`);
+    assert.deepEqual(profile.body.data.File.map((f: { destino: string }) => f.destino), ["Futuro"]);
+  });
+
   await t.test("se informa en qué files está un pasajero antes de borrarlo", async () => {
     const pax = await prisma.pax.create({ data: { firstname: "Con", lastname: "Files" } });
     await createFile({ destino: "Roma" }, [], [pax.id]);

@@ -48,6 +48,18 @@ const normalizeDni = (value?: string | null) =>
 const normalizePassport = (value?: string | null) =>
   (value ?? "").replace(/\s/g, "").toUpperCase() || null;
 
+// Trips that haven't departed yet: the front uses their dates to warn about documents
+// (DNI/passport) that expire before the trip
+const upcomingFilesInclude = () => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return {
+    where: { fechaSalida: { gte: today } },
+    select: { id: true, numero: true, anio: true, destino: true, fechaSalida: true },
+    orderBy: { fechaSalida: "asc" as const },
+  };
+};
+
 // Returns an error message if another pax already has this DNI or passport
 const findDuplicateDocument = async (
   dni: string | null,
@@ -178,6 +190,7 @@ export const getAllPax = async (req: Request, res: Response) => {
     const [paxs, total] = await prisma.$transaction([
       prisma.pax.findMany({
         where,
+        include: { File: upcomingFilesInclude() },
         orderBy: [{ lastname: "asc" }, { firstname: "asc" }, { id: "asc" }],
         skip,
         take,
@@ -199,7 +212,7 @@ export const getPaxById = async (req: Request, res: Response) => {
       where: {
         id: paxId,
       },
-      include: { photos: true, pdfs: true },
+      include: { photos: true, pdfs: true, File: upcomingFilesInclude() },
     });
 
     res.json({ msg: "pax retrieved SUCCESSFULLY", data: pax });
