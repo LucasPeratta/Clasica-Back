@@ -158,14 +158,22 @@ export const getAllPax = async (req: Request, res: Response) => {
 
     const { page, skip, take, terms } = getPaginationParams(req);
 
-    // Every search term must match the firstname or the lastname
+    // Every search term must match the name, DNI, passport or email. DNI/passport are
+    // compared without dots/spaces ("43.972.227" finds "43972227").
     const where: Prisma.PaxWhereInput = {
-      AND: terms.map((term) => ({
-        OR: [
-          { firstname: { contains: term } },
-          { lastname: { contains: term } },
-        ],
-      })),
+      AND: terms.map((term) => {
+        const document = term.replace(/[\s.\-]/g, "");
+        return {
+          OR: [
+            { firstname: { contains: term } },
+            { lastname: { contains: term } },
+            { email: { contains: term } },
+            ...(document
+              ? [{ dni: { contains: document } }, { passport: { contains: document } }]
+              : []),
+          ],
+        };
+      }),
     };
 
     const [paxs, total] = await prisma.$transaction([
