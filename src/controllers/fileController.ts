@@ -42,7 +42,7 @@ const ACTIVE_DAYS = 30;
 const fileListInclude = {
   clients: true,
   services: {
-    select: { id: true, precioNeto: true, tarifa: true, currency: true },
+    select: { id: true, precioNeto: true, tarifa: true, currency: true, liquidado: true },
   },
 } satisfies Prisma.FileInclude;
 
