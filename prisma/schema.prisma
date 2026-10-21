@@ -37,23 +37,25 @@ model Pax {
 }
 
 model File {
-  id                String    @id @default(cuid())
+  id                      String    @id @default(cuid())
   // Automatic correlative number per year of creation, shown as "55-2026"
-  numero            Int?
-  anio              Int?
+  numero                  Int?
+  anio                    Int?
   // Free optional reference (shown as "Referencia" in the app)
-  nro               String?
-  obs               String?   @db.VarChar(300)
-  precioNetoTotal   String
-  tarifaTotal       String
-  tarifaAlternativa String?
-  destino           String
-  fechaSalida       DateTime
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @default(now()) @updatedAt
-  clients           Pax[]     @relation("FilePax")
-  services          Service[] @relation("FileService")
-  pdfs              FilePdf[]
+  nro                     String?
+  obs                     String?   @db.VarChar(300)
+  precioNetoTotal         String
+  tarifaTotal             String
+  // Price actually charged to the client (decided by the agency), in a single currency
+  tarifaAlternativa       String?
+  tarifaAlternativaMoneda Currency?
+  destino                 String
+  fechaSalida             DateTime
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @default(now()) @updatedAt
+  clients                 Pax[]     @relation("FilePax")
+  services                Service[] @relation("FileService")
+  pdfs                    FilePdf[]
 
   @@unique([anio, numero])
 }

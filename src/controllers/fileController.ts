@@ -1,7 +1,7 @@
 import { log } from "console";
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
-import { Prisma } from "@prisma/client";
+import { Currency, Prisma } from "@prisma/client";
 import cloudinary from "../config/cloudinary";
 import {
   buildPage,
@@ -41,6 +41,22 @@ const uploadToCloudinary = (
     );
     uploadStream.end(file.buffer);
   });
+};
+
+// Alternative tariff (what is actually charged) and its currency. Only fields sent are
+// changed, so updates that don't include the currency keep the stored one.
+const alternativeTariffData = (formData: Record<string, unknown>) => {
+  const data: { tarifaAlternativa?: string | null; tarifaAlternativaMoneda?: Currency | null } = {};
+  if ("tarifaAlternativa" in formData) {
+    data.tarifaAlternativa = String(formData.tarifaAlternativa ?? "").trim() || null;
+  }
+  if ("tarifaAlternativaMoneda" in formData) {
+    const currency = formData.tarifaAlternativaMoneda;
+    data.tarifaAlternativaMoneda = Object.values(Currency).includes(currency as Currency)
+      ? (currency as Currency)
+      : null;
+  }
+  return data;
 };
 
 // A file stays among the "current" ones until this many days after its departure date
@@ -203,7 +219,7 @@ export const addFile = async (req: Request, res: Response) => {
             obs: formData.obs,
             precioNetoTotal: totalPrecioNeto.toString(),
             tarifaTotal: totalTariff.toString(), // Convert back to string if needed
-            tarifaAlternativa: formData.tarifaAlternativa,
+            ...alternativeTariffData(formData),
             destino: formData.destino,
             fechaSalida: formData.fechaSalida,
             clients: {
@@ -339,7 +355,7 @@ export const updateFile = async (req: Request, res: Response) => {
           obs: formData.obs,
           tarifaTotal: totalTariff.toString(), // ALWAYS calculated, never from formData
           precioNetoTotal: totalNetPrice.toString(), // ALWAYS calculated, never from formData
-          tarifaAlternativa: formData.tarifaAlternativa,
+          ...alternativeTariffData(formData),
           destino: formData.destino,
           fechaSalida: formData.fechaSalida,
         },
