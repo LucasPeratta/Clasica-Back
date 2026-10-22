@@ -117,25 +117,29 @@ export const searchServicesToPay = async (req: Request, res: Response) => {
 
 // GET /mayoristas/pendientes?page=&search= — services not fully paid to the wholesaler,
 // by due date. Search also matches the wholesaler name
+// Services not fully paid to the wholesaler, by due date. Also used by the home page
+export const listPendingSupplierServices = async (terms: string[] = []) => {
+  const services = await prisma.service.findMany({
+    where: {
+      deleted_at: null,
+      File: { some: {} },
+      AND: terms.map((term) => ({
+        OR: [{ provider: { contains: term } }, { nombre: { contains: term } }, { File: { some: fileSearch(term) } }],
+      })),
+    },
+    include: serviceInclude,
+  });
+
+  return services
+    .map(supplierStatus)
+    .filter((s) => s.falta > 0)
+    .sort((a, b) => (a.vencimiento?.getTime() ?? 0) - (b.vencimiento?.getTime() ?? 0));
+};
+
 export const getPendingSupplierPayments = async (req: Request, res: Response) => {
   try {
     const { page, skip, take, terms } = getPaginationParams(req);
-
-    const services = await prisma.service.findMany({
-      where: {
-        deleted_at: null,
-        File: { some: {} },
-        AND: terms.map((term) => ({
-          OR: [{ provider: { contains: term } }, { nombre: { contains: term } }, { File: { some: fileSearch(term) } }],
-        })),
-      },
-      include: serviceInclude,
-    });
-
-    const pending = services
-      .map(supplierStatus)
-      .filter((s) => s.falta > 0)
-      .sort((a, b) => (a.vencimiento?.getTime() ?? 0) - (b.vencimiento?.getTime() ?? 0));
+    const pending = await listPendingSupplierServices(terms);
 
     // Pending totals per currency (of everything found, not only this page)
     const totals: Record<string, number> = {};

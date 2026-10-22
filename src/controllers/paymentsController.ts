@@ -248,35 +248,57 @@ export const getClientPaymentsHistory = async (req: Request, res: Response) => {
 
 // GET /cobranzas?filtro=vencidos|semana|mes|todos&page=&search=
 // Files that still owe money, by next due date. counts: how many in each filter
+// Files that still owe money, by next due date (optionally filtered by search terms).
+// Also used by the home page
+export const listOwingFiles = async (terms: string[] = []) => {
+  const files = await prisma.file.findMany({
+    include: {
+      ...filePaymentsInclude,
+      clients: { select: { firstname: true, lastname: true }, take: 1 },
+    },
+  });
+
+  return files
+    .map((file) => ({ file, summary: getPaymentsSummary(file) }))
+    .filter(({ summary }) => summary.falta > 0 && summary.proximoVencimiento)
+    .filter(({ file }) =>
+      terms.every((term) => {
+        const t = term.toLowerCase();
+        const number = file.numero && file.anio ? `${file.numero}-${file.anio}` : "";
+        const pax = file.clients[0] ? `${file.clients[0].lastname} ${file.clients[0].firstname}` : "";
+        return [file.destino, pax, number, String(file.numero ?? "")].some((v) =>
+          v.toLowerCase().includes(t)
+        );
+      })
+    )
+    .sort(
+      (a, b) =>
+        a.summary.proximoVencimiento!.vencimiento.getTime() -
+        b.summary.proximoVencimiento!.vencimiento.getTime()
+    );
+};
+
+type OwingFile = Awaited<ReturnType<typeof listOwingFiles>>[number];
+
+export const owingFileToJson = ({ file, summary }: OwingFile) => ({
+  id: file.id,
+  numero: file.numero,
+  anio: file.anio,
+  destino: file.destino,
+  fechaSalida: file.fechaSalida,
+  pasajero: file.clients[0] ?? null,
+  moneda: summary.moneda,
+  total: summary.total,
+  cobrado: summary.cobrado,
+  falta: summary.falta,
+  estado: summary.estado,
+  proximoVencimiento: summary.proximoVencimiento,
+});
+
 export const getCobranzas = async (req: Request, res: Response) => {
   try {
     const { page, skip, terms } = getPaginationParams(req);
-
-    const files = await prisma.file.findMany({
-      include: {
-        ...filePaymentsInclude,
-        clients: { select: { firstname: true, lastname: true }, take: 1 },
-      },
-    });
-
-    const owing = files
-      .map((file) => ({ file, summary: getPaymentsSummary(file) }))
-      .filter(({ summary }) => summary.falta > 0 && summary.proximoVencimiento)
-      .filter(({ file }) =>
-        terms.every((term) => {
-          const t = term.toLowerCase();
-          const number = file.numero && file.anio ? `${file.numero}-${file.anio}` : "";
-          const pax = file.clients[0] ? `${file.clients[0].lastname} ${file.clients[0].firstname}` : "";
-          return [file.destino, pax, number, String(file.numero ?? "")].some((v) =>
-            v.toLowerCase().includes(t)
-          );
-        })
-      )
-      .sort(
-        (a, b) =>
-          a.summary.proximoVencimiento!.vencimiento.getTime() -
-          b.summary.proximoVencimiento!.vencimiento.getTime()
-      );
+    const owing = await listOwingFiles(terms);
 
     const days = (item: (typeof owing)[number]) => item.summary.proximoVencimiento!.diasParaVencer;
     const filters = {
@@ -289,20 +311,7 @@ export const getCobranzas = async (req: Request, res: Response) => {
     const filtro = (requested in filters ? requested : "todos") as keyof typeof filters;
     const selected = filters[filtro];
 
-    const data = selected.slice(skip, skip + PAGE_SIZE).map(({ file, summary }) => ({
-      id: file.id,
-      numero: file.numero,
-      anio: file.anio,
-      destino: file.destino,
-      fechaSalida: file.fechaSalida,
-      pasajero: file.clients[0] ?? null,
-      moneda: summary.moneda,
-      total: summary.total,
-      cobrado: summary.cobrado,
-      falta: summary.falta,
-      estado: summary.estado,
-      proximoVencimiento: summary.proximoVencimiento,
-    }));
+    const data = selected.slice(skip, skip + PAGE_SIZE).map(owingFileToJson);
 
     res.json({
       ...buildPage(data, selected.length, page),

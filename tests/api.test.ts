@@ -497,6 +497,41 @@ test("pagos a mayoristas", async (t) => {
   });
 });
 
+test("inicio", async (t) => {
+  await t.test("junta salidas, cobros, mayoristas, servicios sin liquidar y documentos", async () => {
+    const pax = await prisma.pax.create({
+      data: {
+        firstname: "Inicio",
+        lastname: "Tablero",
+        passportVto: new Date(daysFromToday(3)), // vence antes del viaje
+        dniVto: new Date(daysFromToday(100)), // vence en los próximos 6 meses
+      },
+    });
+    const flight = await createService({ type: "AEREO", provider: "ProvInicio", precioNeto: "500", tarifa: "700" });
+    const file = await createFile({ destino: "InicioDestino", fechaSalida: daysFromToday(5) }, [flight], [pax.id]);
+
+    const { status, body } = await request("/inicio");
+    assert.equal(status, 200);
+
+    const departure = body.proximasSalidas.find((f: { id: string }) => f.id === file.id);
+    assert.equal(departure.diasParaSalida, 5);
+    assert.equal(departure.sinLiquidar, 1);
+
+    // Las listas muestran hasta 8; la base de pruebas ya tiene muchos files, así que se controlan los totales
+    assert.ok(body.cobros.semana >= 1);
+    assert.ok(body.cobros.items.length <= 8);
+    assert.ok(body.mayoristas.semana + body.mayoristas.vencidos >= 1);
+    assert.ok(body.sinLiquidar.total >= 1);
+    assert.ok(body.sinLiquidar.items.every((s: { diasParaSalida: number }) => s.diasParaSalida <= 30));
+
+    const docs = body.documentos.items.filter((d: { paxId: string }) => d.paxId === pax.id);
+    assert.equal(docs.length, 2);
+    assert.match(docs[0].problema, /Vence antes del viaje a InicioDestino/);
+    assert.equal(docs[1].documento, "DNI");
+    assert.equal(docs[1].problema, null);
+  });
+});
+
 test("servicios", async (t) => {
   await t.test("la lista muestra a qué file pertenece y oculta los sueltos", async () => {
     const loose = await createService({ nombre: "Suelto", provider: "ProvLista" });
