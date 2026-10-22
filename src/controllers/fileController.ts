@@ -6,6 +6,7 @@ import {
   getPaginationParams,
   isPaginatedRequest,
 } from "../utils/pagination";
+import { filePaymentsInclude, getPaymentsSummary } from "../utils/payments";
 import {
   fileNumberConditions,
   nextFileNumber,
@@ -39,11 +40,16 @@ const alternativeTariffData = (formData: Record<string, unknown>) => {
 const ACTIVE_DAYS = 30;
 
 // Services only with what the list needs to show totals per currency
+// Services with what the list needs (totals per currency, liquidation, payments plan), plus
+// the plan and payments to show each file's payment status
 const fileListInclude = {
   clients: true,
   services: {
-    select: { id: true, precioNeto: true, tarifa: true, currency: true, liquidado: true },
+    where: { deleted_at: null },
+    select: { id: true, type: true, precioNeto: true, tarifa: true, currency: true, liquidado: true },
   },
+  cuotas: filePaymentsInclude.cuotas,
+  pagos: filePaymentsInclude.pagos,
 } satisfies Prisma.FileInclude;
 
 export const getAllFile = async (req: Request, res: Response) => {
@@ -109,7 +115,18 @@ export const getAllFile = async (req: Request, res: Response) => {
 
     // counts: results in each tab (with the search applied), to show them on the tabs
     res.json({
-      ...buildPage(files, showFinished ? finished : current, page),
+      ...buildPage(
+        files.map(({ cuotas, pagos, ...file }) => {
+          const summary = getPaymentsSummary({ ...file, cuotas, pagos });
+          return {
+            ...file,
+            // Payment status for the list (paid / owes / overdue)
+            cobro: { estado: summary.estado, moneda: summary.moneda, falta: summary.falta, cobrado: summary.cobrado, total: summary.planTotal },
+          };
+        }),
+        showFinished ? finished : current,
+        page
+      ),
       counts: { current, finished },
     });
   } catch (error) {

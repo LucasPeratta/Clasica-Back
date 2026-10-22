@@ -220,6 +220,17 @@ test("files", async (t) => {
     assert.deepEqual(dates, [...dates].sort());
   });
 
+  await t.test("la lista de files trae el estado de pago de cada uno", async () => {
+    const flight = await createService({ type: "AEREO", tarifa: "1000" });
+    const file = await createFile({ destino: "ListaCobro" }, [flight]);
+    await post(`/file/${file.id}/pagos`, { fecha: daysFromToday(0), medio: "EFECTIVO", moneda: "USD", importe: 400 });
+    const { body } = await request("/file?page=1&search=ListaCobro");
+    assert.equal(body.data[0].cobro.moneda, "USD");
+    assert.equal(body.data[0].cobro.falta, 600);
+    assert.equal(body.data[0].cobro.cobrado, 400);
+    assert.equal(body.data[0].cuotas, undefined);
+  });
+
   await t.test("tarifa alternativa con moneda: se guarda, no se pierde al editar otra cosa y se quita", async () => {
     const file = await createFile({ tarifaAlternativa: "10500", tarifaAlternativaMoneda: "USD" });
     assert.equal(file.tarifaAlternativa, "10500");
