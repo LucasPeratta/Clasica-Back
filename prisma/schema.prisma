@@ -104,24 +104,54 @@ enum PaymentMethod {
 }
 
 model Service {
-  id          String      @id @default(cuid())
-  nombre      String
-  provider    String
-  localizador String?
-  precioNeto  String
-  tarifa      String
-  currency    Currency
-  type        ServiceType @default(AEREO)
-  obs         String?     @db.VarChar(300)
-  fechaInicio DateTime?
-  fechaFin    DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @default(now()) @updatedAt
-  deleted_at  DateTime?
+  id             String                  @id @default(cuid())
+  nombre         String
+  provider       String
+  localizador    String?
+  precioNeto     String
+  tarifa         String
+  currency       Currency
+  type           ServiceType             @default(AEREO)
+  obs            String?                 @db.VarChar(300)
+  fechaInicio    DateTime?
+  fechaFin       DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @default(now()) @updatedAt
+  deleted_at     DateTime?
   // Sent to the wholesaler for settlement ("liquidado"); if not, the booking can be cancelled
-  liquidado   Boolean     @default(false)
-  liquidadoAt DateTime?
-  File        File[]      @relation("FileService")
+  liquidado      Boolean                 @default(false)
+  liquidadoAt    DateTime?
+  File           File[]                  @relation("FileService")
+  // Parts of payments to the wholesaler that cover this service (its net price)
+  pagosMayorista PagoMayoristaServicio[]
+}
+
+// Payment the agency makes to a wholesaler. One payment can cover services of several
+// files (e.g. USD 10.000 = flights of one file + hotels of another); always in one currency
+model PagoMayorista {
+  id           String                  @id @default(cuid())
+  fecha        DateTime
+  mayorista    String
+  importe      Decimal                 @db.Decimal(14, 2)
+  moneda       Currency
+  medio        PaymentMethod
+  nota         String?                 @db.VarChar(300)
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @default(now()) @updatedAt
+  aplicaciones PagoMayoristaServicio[]
+}
+
+// How much of a wholesaler payment goes to each service
+model PagoMayoristaServicio {
+  id        String        @id @default(cuid())
+  pagoId    String
+  pago      PagoMayorista @relation(fields: [pagoId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  importe   Decimal       @db.Decimal(14, 2)
+
+  @@index([pagoId])
+  @@index([serviceId])
 }
 
 enum Currency {

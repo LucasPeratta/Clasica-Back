@@ -127,7 +127,8 @@ export const getFileById = async (req: Request, res: Response) => {
       },
       include: {
         clients: true,
-        services: true,
+        // With what has been paid to the wholesaler for each one
+        services: { include: { pagosMayorista: { select: { importe: true } } } },
         pdfs: true,
       },
     });

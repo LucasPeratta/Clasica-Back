@@ -424,6 +424,79 @@ test("pagos de clientes", async (t) => {
   });
 });
 
+test("pagos a mayoristas", async (t) => {
+  const payWholesaler = (data: Record<string, unknown>) =>
+    post("/mayoristas/pagos", { fecha: daysFromToday(0), medio: "TRANSFERENCIA", ...data });
+
+  await t.test("un pago se reparte entre servicios de distintos files", async () => {
+    const pax = await prisma.pax.create({ data: { firstname: "Mayorista", lastname: "Reparto" } });
+    const flight = await createService({ type: "AEREO", provider: "Despegar", precioNeto: "6000", tarifa: "7000" });
+    const hotel = await createService({ type: "HOTEL", provider: "Despegar", precioNeto: "5000", tarifa: "6000" });
+    await createFile({ destino: "Roma" }, [flight], [pax.id]);
+    await createFile({ destino: "Paris" }, [hotel], [pax.id]);
+
+    const search = await request("/mayoristas/servicios?search=Reparto");
+    assert.equal(search.body.data.length, 2);
+    assert.equal(search.body.data[0].services[0].falta > 0, true);
+
+    const res = await payWholesaler({
+      aplicaciones: [
+        { serviceId: flight, importe: 6000 },
+        { serviceId: hotel, importe: 4000 },
+      ],
+    });
+    assert.equal(res.status, 200);
+
+    const pending = await request("/mayoristas/pendientes?page=1&search=Reparto");
+    // El vuelo quedó pagado; del hotel faltan 1.000
+    assert.deepEqual(
+      pending.body.data.map((s: { id: string; falta: number }) => [s.id, s.falta]),
+      [[hotel, 1000]]
+    );
+
+    const history = await request("/mayoristas/pagos?page=1&search=Despegar");
+    assert.equal(history.body.data[0].importe, 10000);
+    assert.equal(history.body.data[0].mayorista, "Despegar");
+    assert.equal(history.body.data[0].aplicaciones.length, 2);
+  });
+
+  await t.test("no se mezclan monedas ni se paga más de lo pendiente", async () => {
+    const usd = await createService({ precioNeto: "100", currency: "USD" });
+    const pesos = await createService({ precioNeto: "100", currency: "PESOS" });
+    await createFile({}, [usd]);
+    await createFile({}, [pesos]);
+
+    const mixed = await payWholesaler({
+      aplicaciones: [{ serviceId: usd, importe: 50 }, { serviceId: pesos, importe: 50 }],
+    });
+    assert.equal(mixed.status, 400);
+
+    const tooMuch = await payWholesaler({ aplicaciones: [{ serviceId: usd, importe: 150 }] });
+    assert.equal(tooMuch.status, 400);
+  });
+
+  await t.test("borrar un pago vuelve a dejar pendiente el servicio", async () => {
+    const serviceId = await createService({ provider: "ProvBorrar", precioNeto: "300" });
+    await createFile({}, [serviceId]);
+    await payWholesaler({ aplicaciones: [{ serviceId, importe: 300 }] });
+    let pending = await request("/mayoristas/pendientes?page=1&search=ProvBorrar");
+    assert.equal(pending.body.total, 0);
+
+    const history = await request("/mayoristas/pagos?page=1&search=ProvBorrar");
+    await request(`/mayoristas/pagos/${history.body.data[0].id}`, { method: "DELETE" });
+    pending = await request("/mayoristas/pendientes?page=1&search=ProvBorrar");
+    assert.equal(pending.body.data[0].falta, 300);
+  });
+
+  await t.test("el detalle del file trae lo pagado al mayorista por servicio", async () => {
+    const serviceId = await createService({ precioNeto: "800" });
+    const file = await createFile({}, [serviceId]);
+    await payWholesaler({ aplicaciones: [{ serviceId, importe: 500 }] });
+    const { body } = await request(`/file/${file.id}`);
+    assert.deepEqual(body.data.services[0].pagosMayorista.map((p: { importe: string }) => Number(p.importe)), [500]);
+  });
+});
+
 test("servicios", async (t) => {
   await t.test("la lista muestra a qué file pertenece y oculta los sueltos", async () => {
     const loose = await createService({ nombre: "Suelto", provider: "ProvLista" });
