@@ -99,7 +99,7 @@ export const getHome = async (req: Request, res: Response) => {
             documento,
             vencimiento: expiry,
             diasParaVencer: days,
-            problema: `${days < 0 ? "Vencido" : "Vence antes del viaje"} a ${trip.destino} (${trip.fechaSalida.toLocaleDateString("es-AR")})`,
+            problema: `${days < 0 ? "Vencido para el viaje" : "Vence antes del viaje"} a ${trip.destino} (${trip.fechaSalida.toLocaleDateString("es-AR")})`,
           });
         }
       }
