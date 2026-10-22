@@ -1,6 +1,7 @@
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
-import { Currency, PaymentMethod } from "@prisma/client";
+import { Currency, PaymentMethod, Prisma } from "@prisma/client";
+import { fileNumberConditions } from "../utils/fileNumber";
 import {
   FileWithPayments,
   PaymentError,
@@ -179,6 +180,68 @@ export const deletePago = async (req: Request, res: Response) => {
     res.json(summaryResponse((await loadFile(fileId))!));
   } catch (error) {
     res.status(500).json({ msg: "Error al eliminar el pago", error });
+    console.log(error);
+  }
+};
+
+// GET /cobranzas/pagos?page=&search= — history of all client payments, latest first.
+// Search by pax name, destination or file number ("55" / "55-2026")
+export const getClientPaymentsHistory = async (req: Request, res: Response) => {
+  try {
+    const { page, skip, take, terms } = getPaginationParams(req);
+
+    const where: Prisma.FilePagoWhereInput = {
+      AND: terms.map((term) => ({
+        file: {
+          OR: [
+            { destino: { contains: term } },
+            ...fileNumberConditions(term),
+            {
+              clients: {
+                some: {
+                  OR: [{ firstname: { contains: term } }, { lastname: { contains: term } }],
+                },
+              },
+            },
+          ],
+        },
+      })),
+    };
+
+    const [pagos, total] = await prisma.$transaction([
+      prisma.filePago.findMany({
+        where,
+        include: {
+          file: {
+            select: {
+              id: true,
+              numero: true,
+              anio: true,
+              destino: true,
+              clients: { select: { firstname: true, lastname: true }, take: 1 },
+            },
+          },
+        },
+        orderBy: [{ fecha: "desc" }, { createdAt: "desc" }],
+        skip,
+        take,
+      }),
+      prisma.filePago.count({ where }),
+    ]);
+
+    res.json(
+      buildPage(
+        pagos.map(({ file, ...pago }) => ({
+          ...paymentToJson({ ...pago, fileId: file.id }),
+          file: { id: file.id, numero: file.numero, anio: file.anio, destino: file.destino },
+          pasajero: file.clients[0] ?? null,
+        })),
+        total,
+        page
+      )
+    );
+  } catch (error) {
+    res.status(500).json({ msg: "Error al obtener los pagos recibidos", error });
     console.log(error);
   }
 };

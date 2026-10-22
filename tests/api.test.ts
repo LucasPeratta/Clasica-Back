@@ -393,6 +393,22 @@ test("pagos de clientes", async (t) => {
     assert.ok(!todos.body.data.some((f: { destino: string }) => f.destino === "CobranzaPagada"));
   });
 
+  await t.test("historial de cobros: del más nuevo al más viejo, con su file y pasajero", async () => {
+    const pax = await prisma.pax.create({ data: { firstname: "Historial", lastname: "Cobros" } });
+    const flight = await createService({ type: "AEREO", tarifa: "1000" });
+    const file = await createFile({ destino: "HistorialCobros" }, [flight], [pax.id]);
+    await pay(file.id, { importe: 300, fecha: daysFromToday(-2) });
+    await pay(file.id, { importe: 200, fecha: daysFromToday(0) });
+
+    const { body } = await request("/cobranzas/pagos?page=1&search=Historial");
+    assert.deepEqual(body.data.map((p: { importe: number }) => p.importe), [200, 300]);
+    assert.equal(body.data[0].file.destino, "HistorialCobros");
+    assert.equal(body.data[0].pasajero.lastname, "Cobros");
+
+    const byNumber = await request(`/cobranzas/pagos?page=1&search=${file.numero}-${file.anio}`);
+    assert.equal(byNumber.body.total, 2);
+  });
+
   await t.test("marcar un servicio como liquidado (y desmarcarlo)", async () => {
     const serviceId = await createService();
     let res = await request(`/service/${serviceId}/liquidado`, {
