@@ -7,7 +7,9 @@ import { listPendingSupplierServices } from "./supplierPaymentsController";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UPCOMING_DEPARTURES_DAYS = 15;
-const LIQUIDATION_DAYS = 30;
+// Services not yet sent to the wholesaler: all of upcoming trips (they are settled right after
+// booking); the front colors them by how close the departure is. Max listed:
+const MAX_UNSETTLED_ITEMS = 50;
 // Documents expiring in the next 6 months
 const DOCUMENTS_DAYS = 183;
 // Trips checked for expired documents (or expiring before departure)
@@ -44,7 +46,7 @@ export const getHome = async (req: Request, res: Response) => {
         where: {
           deleted_at: null,
           liquidado: false,
-          File: { some: { fechaSalida: { gte: today, lt: addDays(today, LIQUIDATION_DAYS + 1) } } },
+          File: { some: { fechaSalida: { gte: today } } },
         },
         select: { id: true, nombre: true, type: true, provider: true, File: { select: fileRef, take: 1 } },
       }),
@@ -188,7 +190,7 @@ export const getHome = async (req: Request, res: Response) => {
         items: nextSupplierPayments,
         total: supplierGroups.size,
       },
-      sinLiquidar: { total: unsettledSorted.length, items: unsettledSorted.slice(0, MAX_ITEMS) },
+      sinLiquidar: { total: unsettledSorted.length, items: unsettledSorted.slice(0, MAX_UNSETTLED_ITEMS) },
       documentos: { total: documents.length, items: documents.slice(0, MAX_ITEMS) },
     });
   } catch (error) {

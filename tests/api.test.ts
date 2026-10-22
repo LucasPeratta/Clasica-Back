@@ -562,7 +562,10 @@ test("inicio", async (t) => {
     assert.deepEqual(days, [...days].sort((a: number, b: number) => a - b));
     assert.ok(body.mayoristas.items.every((m: { servicios: number; mayorista: string }) => m.servicios >= 1 && "mayorista" in m));
     assert.ok(body.sinLiquidar.total >= 1);
-    assert.ok(body.sinLiquidar.items.every((s: { diasParaSalida: number }) => s.diasParaSalida <= 30));
+    // Sin liquidar: todos los de viajes que todavía no salieron, del más próximo al más lejano
+    const unsettledDays = body.sinLiquidar.items.map((s: { diasParaSalida: number }) => s.diasParaSalida);
+    assert.ok(unsettledDays.every((d: number) => d >= 0));
+    assert.deepEqual(unsettledDays, [...unsettledDays].sort((a: number, b: number) => a - b));
 
     const docs = body.documentos.items.filter((d: { paxId: string }) => d.paxId === pax.id);
     assert.equal(docs.length, 2);
