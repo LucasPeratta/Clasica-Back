@@ -184,8 +184,9 @@ export const getHome = async (req: Request, res: Response) => {
       mayoristas: {
         vencidos: supplierPending.filter((s) => s.diasParaVencer !== null && s.diasParaVencer < 0).length,
         semana: supplierPending.filter((s) => s.diasParaVencer !== null && s.diasParaVencer >= 0 && s.diasParaVencer <= 7).length,
-        // Próximos pagos (no solo los urgentes)
+        // Próximos pagos (no solo los urgentes); total = cuántos hay en total
         items: nextSupplierPayments,
+        total: supplierGroups.size,
       },
       sinLiquidar: { total: unsettledSorted.length, items: unsettledSorted.slice(0, MAX_ITEMS) },
       documentos: { total: documents.length, items: documents.slice(0, MAX_ITEMS) },
