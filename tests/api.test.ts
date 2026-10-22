@@ -448,11 +448,17 @@ test("pagos a mayoristas", async (t) => {
     assert.equal(res.status, 200);
 
     const pending = await request("/mayoristas/pendientes?page=1&search=Reparto");
-    // El vuelo quedó pagado; del hotel faltan 1.000
-    assert.deepEqual(
-      pending.body.data.map((s: { id: string; falta: number }) => [s.id, s.falta]),
-      [[hotel, 1000]]
-    );
+    // El vuelo quedó pagado; del hotel (file de París) faltan 1.000. Una fila por file
+    assert.equal(pending.body.data.length, 1);
+    assert.equal(pending.body.data[0].file.destino, "Paris");
+    assert.deepEqual(pending.body.data[0].mayoristas, [
+      {
+        mayorista: "Despegar",
+        currency: "USD",
+        falta: 1000,
+        servicios: [{ id: hotel, nombre: "Servicio test", type: "HOTEL", falta: 1000 }],
+      },
+    ]);
 
     const history = await request("/mayoristas/pagos?page=1&search=Despegar");
     assert.equal(history.body.data[0].importe, 10000);
@@ -485,7 +491,21 @@ test("pagos a mayoristas", async (t) => {
     const history = await request("/mayoristas/pagos?page=1&search=ProvBorrar");
     await request(`/mayoristas/pagos/${history.body.data[0].id}`, { method: "DELETE" });
     pending = await request("/mayoristas/pendientes?page=1&search=ProvBorrar");
-    assert.equal(pending.body.data[0].falta, 300);
+    assert.equal(pending.body.data[0].mayoristas[0].falta, 300);
+  });
+
+  await t.test("pendiente: un file con varios servicios es una sola fila, agrupada por mayorista", async () => {
+    const a = await createService({ provider: "ProvAgrupa", precioNeto: "100" });
+    const b = await createService({ provider: "ProvAgrupa", precioNeto: "200" });
+    const c = await createService({ provider: "OtroAgrupa", precioNeto: "50" });
+    await createFile({ destino: "AgrupaDestino" }, [a, b, c]);
+
+    const { body } = await request("/mayoristas/pendientes?page=1&search=AgrupaDestino");
+    assert.equal(body.data.length, 1);
+    const groups = Object.fromEntries(
+      body.data[0].mayoristas.map((m: { mayorista: string; falta: number; servicios: unknown[] }) => [m.mayorista, [m.falta, m.servicios.length]])
+    );
+    assert.deepEqual(groups, { ProvAgrupa: [300, 2], OtroAgrupa: [50, 1] });
   });
 
   await t.test("el detalle del file trae lo pagado al mayorista por servicio", async () => {

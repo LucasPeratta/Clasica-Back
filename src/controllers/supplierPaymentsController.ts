@@ -145,7 +145,35 @@ export const getPendingSupplierPayments = async (req: Request, res: Response) =>
     const totals: Record<string, number> = {};
     for (const s of pending) totals[s.currency] = round2((totals[s.currency] ?? 0) + s.falta);
 
-    res.json({ ...buildPage(pending.slice(skip, skip + take), pending.length, page), totals });
+    // One row per file, with what is pending grouped by wholesaler (and currency).
+    // `pending` is sorted by due date, so each file keeps its earliest due date
+    const byFile = new Map<
+      string,
+      {
+        file: NonNullable<(typeof pending)[number]["file"]>;
+        vencimiento: Date | null;
+        diasParaVencer: number | null;
+        mayoristas: Map<string, { mayorista: string; currency: string; falta: number; servicios: { id: string; nombre: string; type: string; falta: number }[] }>;
+      }
+    >();
+    for (const s of pending) {
+      if (!s.file) continue;
+      const row = byFile.get(s.file.id) ?? {
+        file: s.file,
+        vencimiento: s.vencimiento,
+        diasParaVencer: s.diasParaVencer,
+        mayoristas: new Map(),
+      };
+      const key = `${s.provider.trim()}|${s.currency}`;
+      const group = row.mayoristas.get(key) ?? { mayorista: s.provider.trim(), currency: s.currency, falta: 0, servicios: [] };
+      group.falta = round2(group.falta + s.falta);
+      group.servicios.push({ id: s.id, nombre: s.nombre, type: s.type, falta: s.falta });
+      row.mayoristas.set(key, group);
+      byFile.set(s.file.id, row);
+    }
+    const rows = [...byFile.values()].map((row) => ({ ...row, mayoristas: [...row.mayoristas.values()] }));
+
+    res.json({ ...buildPage(rows.slice(skip, skip + take), rows.length, page), totals });
   } catch (error) {
     res.status(500).json({ msg: "Error al obtener lo pendiente de pago", error });
     console.log(error);
