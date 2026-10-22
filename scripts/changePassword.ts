@@ -1,4 +1,5 @@
 // Changes a user's password from the terminal: npm run change-password
+// If the user doesn't exist yet (e.g. a new, empty database) it offers to create it
 // Uses the database in DB_CONNECTION_STRING (.env)
 import readline from "readline";
 import bcrypt from "bcrypt";
@@ -25,14 +26,14 @@ const ask = (question: string, hidden = false): Promise<string> =>
   });
 
 const main = async () => {
-  const email =
-    (await ask("Email del usuario [admin@clasica.com]: ")) ||
-    "admin@clasica.com";
+  const email = (
+    (await ask("Email del usuario [admin@clasica.com]: ")) || "admin@clasica.com"
+  ).toLowerCase();
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
-    console.log(`No existe un usuario con el email ${email}`);
-    return;
+    const create = await ask(`No existe un usuario con el email ${email}. ¿Lo creo? (s/n): `);
+    if (create.toLowerCase() !== "s") return;
   }
 
   const password = await ask("Nueva contraseña (mínimo 8 caracteres): ", true);
@@ -47,11 +48,13 @@ const main = async () => {
     return;
   }
 
-  await prisma.user.update({
+  const hashed = await bcrypt.hash(password, 10);
+  await prisma.user.upsert({
     where: { email },
-    data: { password: await bcrypt.hash(password, 10) },
+    update: { password: hashed },
+    create: { email, password: hashed },
   });
-  console.log(`✅ Contraseña de ${email} actualizada`);
+  console.log(user ? `✅ Contraseña de ${email} actualizada` : `✅ Usuario ${email} creado`);
 };
 
 main()
