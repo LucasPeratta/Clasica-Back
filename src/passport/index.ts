@@ -12,7 +12,9 @@ passport.use(
       usernameField: "email",
       passReqToCallback: true,
     },
-    async (req, email, password, done) => {
+    async (req, rawEmail, password, done) => {
+      // Ignore spaces and uppercase in the email (browser autofill often adds a trailing space)
+      const email = rawEmail.trim().toLowerCase();
       try {
         // Buscar el usuario en la base de datos
         const user = await prisma.user.findUnique({ where: { email } });
@@ -41,7 +43,9 @@ passport.use(
       usernameField: "email",
       passReqToCallback: true,
     },
-    async (req, email, password, done) => {
+    async (req, rawEmail, password, done) => {
+      // Ignore spaces and uppercase in the email (browser autofill often adds a trailing space)
+      const email = rawEmail.trim().toLowerCase();
       try {
         // Verificar si el correo electrónico ya está en uso
         const existingUser = await prisma.user.findUnique({ where: { email } });
