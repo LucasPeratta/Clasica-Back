@@ -10,11 +10,15 @@ import { fileNumberConditions } from "../utils/fileNumber";
 
 export const addService = async (req: Request, res: Response) => {
   const service = req.body;
+  // The wholesaler is needed to pay it later (Pagos > Pagos a mayoristas)
+  if (!String(service?.provider ?? "").trim()) {
+    return res.status(400).json({ msg: "Falta el mayorista del servicio." });
+  }
   try {
     const serviceData = await prisma.service.create({
       data: {
         nombre: service.nombre,
-        provider: service.provider,
+        provider: service.provider.trim(),
         localizador: service.localizador,
         precioNeto: service.precioNeto,
         tarifa: service.tarifa,
@@ -105,6 +109,10 @@ export const getServiceById = async (req: Request, res: Response) => {
 export const updateService = async (req: Request, res: Response) => {
   const serviceId = req.params.id;
   const updatedservice = req.body;
+  // The wholesaler is needed to pay it later (Pagos > Pagos a mayoristas)
+  if (!String(updatedservice?.provider ?? "").trim()) {
+    return res.status(400).json({ msg: "Falta el mayorista del servicio." });
+  }
   try {
     const service = await prisma.service.update({
       where: {
@@ -112,7 +120,7 @@ export const updateService = async (req: Request, res: Response) => {
       },
       data: {
         nombre: updatedservice.nombre,
-        provider: updatedservice.provider,
+        provider: updatedservice.provider.trim(),
         localizador: updatedservice.localizador,
         precioNeto: updatedservice.precioNeto,
         tarifa: updatedservice.tarifa,
@@ -149,6 +157,27 @@ export const softDeleteService = async (req: Request, res: Response) => {
     res.json({ msg: "Service soft deleted successfully", data: service });
   } catch (error) {
     res.status(500).json({ msg: "Error, couldn't soft delete service", error });
+    console.log(error);
+  }
+};
+
+// GET /service/proveedores — wholesalers already used, to suggest them when loading a service
+export const getProviders = async (req: Request, res: Response) => {
+  try {
+    const services = await prisma.service.findMany({
+      where: { deleted_at: null, NOT: { provider: "" } },
+      distinct: ["provider"],
+      select: { provider: true },
+      orderBy: { provider: "asc" },
+    });
+    // Same name with different spaces/case counts once
+    const seen = new Set<string>();
+    const providers = services
+      .map((s) => s.provider.trim())
+      .filter((p) => p && !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
+    res.json({ data: providers });
+  } catch (error) {
+    res.status(500).json({ msg: "Error, couldn't retrieve providers", error });
     console.log(error);
   }
 };

@@ -8,9 +8,12 @@ import {
   updateService,
   softDeleteService,
   setServiceLiquidado,
+  getProviders,
 } from "../../controllers/serviceController";
 
 router.get("/", getAllService);
+// Before "/:id" so "proveedores" is not taken as an id
+router.get("/proveedores", getProviders);
 router.post("/create", addService);
 router.get("/:id", getServiceById);
 router.put("/:id", updateService);

@@ -572,6 +572,23 @@ test("servicios", async (t) => {
     assert.equal(updated.services.length, 0);
   });
 
+  await t.test("el mayorista es obligatorio y se sugieren los ya usados (sin repetir por espacios o mayúsculas)", async () => {
+    const noProvider = await post("/service/create", {
+      nombre: "x", provider: "  ", precioNeto: "1", tarifa: "1", currency: "USD", type: "HOTEL",
+    });
+    assert.equal(noProvider.status, 400);
+    assert.match(noProvider.body.msg, /mayorista/);
+
+    const id = await createService({ provider: "  Mayorista Sugerido  " });
+    await createService({ provider: "mayorista sugerido" });
+    const saved = await prisma.service.findUniqueOrThrow({ where: { id } });
+    assert.equal(saved.provider, "Mayorista Sugerido");
+
+    const { body } = await request("/service/proveedores");
+    const matches = body.data.filter((p: string) => p.toLowerCase() === "mayorista sugerido");
+    assert.equal(matches.length, 1);
+  });
+
   await t.test("monedas: PESOS se acepta y ARS (valor viejo) se rechaza", async () => {
     await createService({ currency: "PESOS" });
     const ars = await post("/service/create", {
