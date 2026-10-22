@@ -557,6 +557,10 @@ test("inicio", async (t) => {
     assert.ok(body.cobros.semana >= 1);
     assert.ok(body.cobros.items.length <= 8);
     assert.ok(body.mayoristas.semana + body.mayoristas.vencidos >= 1);
+    // Próximos pagos a mayoristas: agrupados por file y mayorista, del vencimiento más próximo al más lejano
+    const days = body.mayoristas.items.map((m: { diasParaVencer: number }) => m.diasParaVencer);
+    assert.deepEqual(days, [...days].sort((a: number, b: number) => a - b));
+    assert.ok(body.mayoristas.items.every((m: { servicios: number; mayorista: string }) => m.servicios >= 1 && "mayorista" in m));
     assert.ok(body.sinLiquidar.total >= 1);
     assert.ok(body.sinLiquidar.items.every((s: { diasParaSalida: number }) => s.diasParaSalida <= 30));
 

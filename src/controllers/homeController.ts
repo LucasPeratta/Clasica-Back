@@ -71,8 +71,38 @@ export const getHome = async (req: Request, res: Response) => {
     // Client collections: overdue or due within a week
     const urgentOwing = owing.filter((o) => o.summary.proximoVencimiento!.diasParaVencer <= 7);
 
-    // Wholesaler payments: overdue or due within a week
-    const urgentSupplier = supplierPending.filter((s) => s.diasParaVencer !== null && s.diasParaVencer <= 7);
+    // Wholesaler payments: the next ones coming (overdue first), one line per file and
+    // wholesaler, like in Pagos. supplierPending is already sorted by due date
+    const supplierGroups = new Map<
+      string,
+      {
+        id: string;
+        mayorista: string;
+        currency: string;
+        falta: number;
+        servicios: number;
+        diasParaVencer: number | null;
+        vencimiento: Date | null;
+        file: (typeof supplierPending)[number]["file"];
+      }
+    >();
+    for (const s of supplierPending) {
+      const key = `${s.file?.id}|${s.provider.trim()}|${s.currency}`;
+      const group = supplierGroups.get(key) ?? {
+        id: key,
+        mayorista: s.provider.trim(),
+        currency: s.currency,
+        falta: 0,
+        servicios: 0,
+        diasParaVencer: s.diasParaVencer,
+        vencimiento: s.vencimiento,
+        file: s.file,
+      };
+      group.falta = Math.round((group.falta + s.falta) * 100) / 100;
+      group.servicios += 1;
+      supplierGroups.set(key, group);
+    }
+    const nextSupplierPayments = [...supplierGroups.values()].slice(0, MAX_ITEMS);
 
     // Documents: expiring in the next 6 months, and problems for upcoming trips
     const documents: {
@@ -154,7 +184,8 @@ export const getHome = async (req: Request, res: Response) => {
       mayoristas: {
         vencidos: supplierPending.filter((s) => s.diasParaVencer !== null && s.diasParaVencer < 0).length,
         semana: supplierPending.filter((s) => s.diasParaVencer !== null && s.diasParaVencer >= 0 && s.diasParaVencer <= 7).length,
-        items: urgentSupplier.slice(0, MAX_ITEMS),
+        // Próximos pagos (no solo los urgentes)
+        items: nextSupplierPayments,
       },
       sinLiquidar: { total: unsettledSorted.length, items: unsettledSorted.slice(0, MAX_ITEMS) },
       documentos: { total: documents.length, items: documents.slice(0, MAX_ITEMS) },
