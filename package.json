@@ -11,7 +11,8 @@
     "start": "ts-node app.ts",
     "dev": "nodemon app.ts",
     "change-password": "ts-node scripts/changePassword.ts",
-    "assign-file-numbers": "ts-node scripts/assignFileNumbers.ts"
+    "assign-file-numbers": "ts-node scripts/assignFileNumbers.ts",
+    "demo-data": "ts-node scripts/demoData.ts"
   },
   "keywords": [],
   "author": "LUCAS PERATTA",

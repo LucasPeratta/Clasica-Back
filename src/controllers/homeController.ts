@@ -59,6 +59,8 @@ export const getHome = async (req: Request, res: Response) => {
       }),
       prisma.file.findMany({
         where: { fechaSalida: { gte: today, lt: addDays(today, DOCUMENTS_TRIPS_DAYS) } },
+        // Closest trip first: a document problem is reported for the earliest trip it affects
+        orderBy: { fechaSalida: "asc" },
         select: {
           ...fileRef,
           clients: { select: { id: true, firstname: true, lastname: true, dniVto: true, passportVto: true } },
