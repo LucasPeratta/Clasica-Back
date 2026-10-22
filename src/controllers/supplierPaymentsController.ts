@@ -1,7 +1,7 @@
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 import { Currency, PaymentMethod, Prisma } from "@prisma/client";
-import { buildPage, getPaginationParams } from "../utils/pagination";
+import { buildPage, getDateRange, getPaginationParams } from "../utils/pagination";
 import { fileNumberConditions } from "../utils/fileNumber";
 
 // Payments the agency makes to wholesalers. Each service's net price (precioNeto) is what
@@ -244,11 +244,13 @@ export const addSupplierPayment = async (req: Request, res: Response) => {
   }
 };
 
-// GET /mayoristas/pagos?page=&search= — payments made, latest first
+// GET /mayoristas/pagos?page=&search=&desde=&hasta= — payments made, latest first;
+// optional date range (both days included). totals: amount paid per currency
 export const getSupplierPayments = async (req: Request, res: Response) => {
   try {
     const { page, skip, take, terms } = getPaginationParams(req);
     const where: Prisma.PagoMayoristaWhereInput = {
+      fecha: getDateRange(req),
       AND: terms.map((term) => ({
         OR: [
           { mayorista: { contains: term } },
@@ -280,9 +282,12 @@ export const getSupplierPayments = async (req: Request, res: Response) => {
       }),
       prisma.pagoMayorista.count({ where }),
     ]);
+    // Amount paid per currency of everything found (not only this page)
+    const groups = await prisma.pagoMayorista.groupBy({ by: ["moneda"], where, _sum: { importe: true } });
+    const totals = Object.fromEntries(groups.map((g) => [g.moneda, Number(g._sum.importe ?? 0)]));
 
-    res.json(
-      buildPage(
+    res.json({
+      ...buildPage(
         pagos.map((p) => ({
           ...p,
           importe: Number(p.importe),
@@ -296,8 +301,9 @@ export const getSupplierPayments = async (req: Request, res: Response) => {
         })),
         total,
         page
-      )
-    );
+      ),
+      totals,
+    });
   } catch (error) {
     res.status(500).json({ msg: "Error al obtener los pagos a mayoristas", error });
     console.log(error);

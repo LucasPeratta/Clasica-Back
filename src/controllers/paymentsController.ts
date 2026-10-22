@@ -10,7 +10,7 @@ import {
   getCharge,
   getPaymentsSummary,
 } from "../utils/payments";
-import { PAGE_SIZE, buildPage, getPaginationParams } from "../utils/pagination";
+import { PAGE_SIZE, buildPage, getDateRange, getPaginationParams } from "../utils/pagination";
 
 const CHARGE_PROBLEM_MESSAGES = {
   MIXED_CURRENCIES:
@@ -184,13 +184,21 @@ export const deletePago = async (req: Request, res: Response) => {
   }
 };
 
-// GET /cobranzas/pagos?page=&search= — history of all client payments, latest first.
-// Search by pax name, destination or file number ("55" / "55-2026")
+// Amount paid per currency (as paid) of the payments matching the filter
+const sumByCurrency = async (where: Prisma.FilePagoWhereInput) => {
+  const groups = await prisma.filePago.groupBy({ by: ["moneda"], where, _sum: { importe: true } });
+  return Object.fromEntries(groups.map((g) => [g.moneda, Number(g._sum.importe ?? 0)]));
+};
+
+// GET /cobranzas/pagos?page=&search=&desde=&hasta= — history of all client payments, latest
+// first. Search by pax name, destination or file number ("55" / "55-2026"); optional date
+// range (both days included). totals: amount paid per currency of everything found
 export const getClientPaymentsHistory = async (req: Request, res: Response) => {
   try {
     const { page, skip, take, terms } = getPaginationParams(req);
 
     const where: Prisma.FilePagoWhereInput = {
+      fecha: getDateRange(req),
       AND: terms.map((term) => ({
         file: {
           OR: [
@@ -228,9 +236,10 @@ export const getClientPaymentsHistory = async (req: Request, res: Response) => {
       }),
       prisma.filePago.count({ where }),
     ]);
+    const totals = await sumByCurrency(where);
 
-    res.json(
-      buildPage(
+    res.json({
+      ...buildPage(
         pagos.map(({ file, ...pago }) => ({
           ...paymentToJson({ ...pago, fileId: file.id }),
           file: { id: file.id, numero: file.numero, anio: file.anio, destino: file.destino },
@@ -238,8 +247,9 @@ export const getClientPaymentsHistory = async (req: Request, res: Response) => {
         })),
         total,
         page
-      )
-    );
+      ),
+      totals,
+    });
   } catch (error) {
     res.status(500).json({ msg: "Error al obtener los pagos recibidos", error });
     console.log(error);

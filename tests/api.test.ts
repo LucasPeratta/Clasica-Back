@@ -409,6 +409,22 @@ test("pagos de clientes", async (t) => {
     assert.equal(byNumber.body.total, 2);
   });
 
+  await t.test("historial de cobros filtrado por rango de fechas, con el total del período", async () => {
+    const ymd = (days: number) => {
+      const d = new Date(daysFromToday(days));
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+    const flight = await createService({ type: "AEREO", tarifa: "5000" });
+    const file = await createFile({ destino: "RangoFechas" }, [flight]);
+    await pay(file.id, { importe: 100, fecha: daysFromToday(-10) });
+    await pay(file.id, { importe: 200, fecha: daysFromToday(-5) });
+    await pay(file.id, { importe: 300, fecha: daysFromToday(-1) });
+
+    const { body } = await request(`/cobranzas/pagos?page=1&search=RangoFechas&desde=${ymd(-6)}&hasta=${ymd(-1)}`);
+    assert.deepEqual(body.data.map((p: { importe: number }) => p.importe), [300, 200]);
+    assert.deepEqual(body.totals, { USD: 500 });
+  });
+
   await t.test("marcar un servicio como liquidado (y desmarcarlo)", async () => {
     const serviceId = await createService();
     let res = await request(`/service/${serviceId}/liquidado`, {

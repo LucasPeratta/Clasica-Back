@@ -13,7 +13,19 @@ export const getPaginationParams = (req: Request) => {
   return { page, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, terms };
 };
 
-export const buildPage = <T>(data: T[], total: number, page: number) => ({
+// Optional date range from ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD (both days included),
+// as a Prisma date filter; undefined when there is no range
+export const getDateRange = (req: Request) => {
+  const parse = (value: unknown) =>
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : null;
+  const desde = parse(req.query.desde);
+  const hastaDay = parse(req.query.hasta);
+  const hasta = hastaDay ? new Date(hastaDay.getTime() + 24 * 60 * 60 * 1000) : null;
+  if (!desde && !hasta) return undefined;
+  return { ...(desde && { gte: desde }), ...(hasta && { lt: hasta }) };
+};
+
+export const buildPage =<T>(data: T[], total: number, page: number) => ({
   data,
   total,
   page,
