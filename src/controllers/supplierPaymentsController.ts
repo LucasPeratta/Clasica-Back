@@ -3,12 +3,12 @@ import { Request, Response } from "express";
 import { Currency, PaymentMethod, Prisma } from "@prisma/client";
 import { buildPage, getDateRange, getPaginationParams } from "../utils/pagination";
 import { fileNumberConditions } from "../utils/fileNumber";
+import { liquidationDate } from "../utils/liquidation";
 
 // Payments the agency makes to wholesalers. Each service's net price (precioNeto) is what
 // has to be paid; a payment can be split among services of several files.
 
-// Supplier due date: flights at issuance (file creation), the rest this many days before departure
-const SUPPLIER_DAYS_BEFORE_DEPARTURE = 21;
+// Supplier due date: the service's settlement deadline (by default one month before departure)
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -40,11 +40,7 @@ export const supplierStatus = (service: ServiceWithPayments) => {
   const neto = round2(Number(service.precioNeto) || 0);
   const pagado = round2(service.pagosMayorista.reduce((sum, p) => sum + Number(p.importe), 0));
   const file = service.File[0];
-  const vencimiento = file
-    ? service.type === "AEREO"
-      ? file.createdAt
-      : new Date(file.fechaSalida.getTime() - SUPPLIER_DAYS_BEFORE_DEPARTURE * DAY_MS)
-    : null;
+  const vencimiento = file ? liquidationDate(service.fechaLiquidacion, file.fechaSalida) : null;
   return {
     id: service.id,
     nombre: service.nombre,
@@ -115,8 +111,8 @@ export const searchServicesToPay = async (req: Request, res: Response) => {
   }
 };
 
-// GET /mayoristas/pendientes?page=&search= — services not fully paid to the wholesaler,
-// by due date. Search also matches the wholesaler name
+// GET /mayoristas/pendientes?page=&search=&desde=&hasta= — services not fully paid to the
+// wholesaler, by due date. Search also matches the wholesaler name
 // Services not fully paid to the wholesaler, by due date. Also used by the home page
 export const listPendingSupplierServices = async (terms: string[] = []) => {
   const services = await prisma.service.findMany({
@@ -139,7 +135,15 @@ export const listPendingSupplierServices = async (terms: string[] = []) => {
 export const getPendingSupplierPayments = async (req: Request, res: Response) => {
   try {
     const { page, skip, take, terms } = getPaginationParams(req);
-    const pending = await listPendingSupplierServices(terms);
+    // Optional ?desde=&hasta=: only what is due in those days (e.g. "next week")
+    const range = getDateRange(req);
+    const pending = (await listPendingSupplierServices(terms)).filter(
+      (s) =>
+        !range ||
+        (s.vencimiento !== null &&
+          (!range.gte || s.vencimiento >= range.gte) &&
+          (!range.lt || s.vencimiento < range.lt))
+    );
 
     // Pending totals per currency (of everything found, not only this page)
     const totals: Record<string, number> = {};

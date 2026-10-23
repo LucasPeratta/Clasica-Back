@@ -36,6 +36,12 @@ const daysFromToday = (days: number) => {
   return date.toISOString();
 };
 
+// "YYYY-MM-DD" of a day relative to today (for ?desde=&hasta=)
+const ymd = (days: number) => {
+  const d = new Date(daysFromToday(days));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 const createFile = async (data: Record<string, unknown> = {}, serviceIds: string[] = [], paxIds: string[] = []) => {
   const { status, body } = await post("/file/create", {
     paxIds,
@@ -421,10 +427,6 @@ test("pagos de clientes", async (t) => {
   });
 
   await t.test("historial de cobros filtrado por rango de fechas, con el total del período", async () => {
-    const ymd = (days: number) => {
-      const d = new Date(daysFromToday(days));
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    };
     const flight = await createService({ type: "AEREO", tarifa: "5000" });
     const file = await createFile({ destino: "RangoFechas" }, [flight]);
     await pay(file.id, { importe: 100, fecha: daysFromToday(-10) });
@@ -434,6 +436,66 @@ test("pagos de clientes", async (t) => {
     const { body } = await request(`/cobranzas/pagos?page=1&search=RangoFechas&desde=${ymd(-6)}&hasta=${ymd(-1)}`);
     assert.deepEqual(body.data.map((p: { importe: number }) => p.importe), [300, 200]);
     assert.deepEqual(body.totals, { USD: 500 });
+  });
+
+  await t.test("recibo: número correlativo y a nombre de quien pagó", async () => {
+    const ana = await prisma.pax.create({ data: { firstname: "Ana", lastname: "Recibo", dni: "30111222" } });
+    const beto = await prisma.pax.create({ data: { firstname: "Beto", lastname: "Recibo", dni: "30111333" } });
+    const other = await prisma.pax.create({ data: { firstname: "Otro", lastname: "Ajeno" } });
+    const flight = await createService({ type: "AEREO", tarifa: "1000" });
+    const file = await createFile({ destino: "ReciboDestino" }, [flight], [ana.id, beto.id]);
+
+    // Quien pagó tiene que ser del file
+    const wrongPayer = await pay(file.id, { importe: 100, pagadorId: other.id });
+    assert.equal(wrongPayer.status, 400);
+
+    const first = await pay(file.id, { importe: 100, pagadorId: beto.id, nota: "Seña" });
+    assert.equal(first.status, 200);
+    await pay(file.id, { importe: 50 });
+    // Los pagos vienen en el orden en que se registraron
+    const [byBeto, noPayer] = (await request(`/file/${file.id}/pagos`)).body.pagos;
+    assert.equal(byBeto.pagador.firstname, "Beto");
+    assert.equal(typeof byBeto.reciboNumero, "number");
+    assert.equal(noPayer.reciboNumero, byBeto.reciboNumero + 1);
+
+    const receipt = await request(`/file/${file.id}/pagos/${byBeto.id}/recibo`);
+    assert.equal(receipt.status, 200);
+    assert.equal(receipt.body.numero, byBeto.reciboNumero);
+    assert.deepEqual(receipt.body.pasajero, { nombre: "Beto Recibo", documento: "30111333" });
+    assert.equal(receipt.body.importe, 100);
+    assert.equal(receipt.body.nota, "Seña");
+    assert.equal(receipt.body.file.destino, "ReciboDestino");
+
+    // Sin pagador: el recibo sale a nombre del primer pasajero del file
+    const second = await request(`/file/${file.id}/pagos/${noPayer.id}/recibo`);
+    assert.match(second.body.pasajero.nombre, /Recibo$/);
+
+    // Pagos viejos sin número: lo reciben al pedir el recibo
+    const old = await prisma.filePago.create({
+      data: { fileId: file.id, fecha: new Date(), importe: 10, moneda: "USD", importeAplicado: 10, medio: "EFECTIVO" },
+    });
+    const late = await request(`/file/${file.id}/pagos/${old.id}/recibo`);
+    assert.ok(late.body.numero > noPayer.reciboNumero);
+
+    // El historial muestra a quien pagó
+    const history = await request("/cobranzas/pagos?page=1&search=ReciboDestino");
+    const row = history.body.data.find((p: { id: string }) => p.id === byBeto.id);
+    assert.equal(row.pasajero.firstname, "Beto");
+    assert.equal(row.reciboNumero, byBeto.reciboNumero);
+  });
+
+  await t.test("cobranzas: se encuentra el file por cualquiera de sus pasajeros y trae la lista", async () => {
+    const first = await prisma.pax.create({ data: { firstname: "Primero", lastname: "Busqueda" } });
+    const second = await prisma.pax.create({ data: { firstname: "Segundo", lastname: "Escondido" } });
+    await newFileWithServices({ destino: "BusquedaPorPax" }).then((f) =>
+      prisma.file.update({ where: { id: f.id }, data: { clients: { connect: [{ id: first.id }, { id: second.id }] } } })
+    );
+    const { body } = await request("/cobranzas?search=Escondido");
+    assert.deepEqual(body.data.map((f: { destino: string }) => f.destino), ["BusquedaPorPax"]);
+    assert.deepEqual(
+      body.data[0].pasajeros.map((p: { firstname: string }) => p.firstname).sort(),
+      ["Primero", "Segundo"]
+    );
   });
 
   await t.test("marcar un servicio como liquidado (y desmarcarlo)", async () => {
@@ -542,6 +604,32 @@ test("pagos a mayoristas", async (t) => {
     const { body } = await request(`/file/${file.id}`);
     assert.deepEqual(body.data.services[0].pagosMayorista.map((p: { importe: string }) => Number(p.importe)), [500]);
   });
+
+  await t.test("se paga en la fecha de liquidación: 1 mes antes de la salida o la elegida, con filtro por fechas", async () => {
+    const byDefault = await createService({ provider: "ProvLiquida", precioNeto: "100" });
+    const custom = await createService({ provider: "ProvLiquida", precioNeto: "200", fechaLiquidacion: daysFromToday(5) });
+    const departure = new Date(daysFromToday(60));
+    await createFile({ destino: "LiquidaDefault", fechaSalida: departure.toISOString() }, [byDefault]);
+    await createFile({ destino: "LiquidaCustom", fechaSalida: departure.toISOString() }, [custom]);
+
+    const all = await request("/mayoristas/pendientes?page=1&search=ProvLiquida");
+    const row = (destino: string) => all.body.data.find((r: { file: { destino: string } }) => r.file.destino === destino);
+    assert.equal(row("LiquidaCustom").diasParaVencer, 5);
+    const expected = new Date(departure);
+    expected.setMonth(expected.getMonth() - 1);
+    assert.equal(new Date(row("LiquidaDefault").vencimiento).toDateString(), expected.toDateString());
+    // El que vence antes va primero
+    assert.equal(all.body.data[0].file.destino, "LiquidaCustom");
+
+    // "La semana que viene": solo lo que vence en esos días, con su total
+    const week = await request(`/mayoristas/pendientes?page=1&search=ProvLiquida&desde=${ymd(1)}&hasta=${ymd(7)}`);
+    assert.deepEqual(week.body.data.map((r: { file: { destino: string } }) => r.file.destino), ["LiquidaCustom"]);
+    assert.deepEqual(week.body.totals, { USD: 200 });
+
+    // La fecha elegida se guarda al editar, y vacía vuelve a la de por defecto
+    const updated = await put(`/service/${custom}`, { provider: "ProvLiquida", fechaLiquidacion: null });
+    assert.equal(updated.body.data.fechaLiquidacion, null);
+  });
 });
 
 test("inicio", async (t) => {
@@ -573,10 +661,13 @@ test("inicio", async (t) => {
     assert.deepEqual(days, [...days].sort((a: number, b: number) => a - b));
     assert.ok(body.mayoristas.items.every((m: { servicios: number; mayorista: string }) => m.servicios >= 1 && "mayorista" in m));
     assert.ok(body.sinLiquidar.total >= 1);
-    // Sin liquidar: todos los de viajes que todavía no salieron, del más próximo al más lejano
-    const unsettledDays = body.sinLiquidar.items.map((s: { diasParaSalida: number }) => s.diasParaSalida);
-    assert.ok(unsettledDays.every((d: number) => d >= 0));
-    assert.deepEqual(unsettledDays, [...unsettledDays].sort((a: number, b: number) => a - b));
+    // Sin liquidar: todos los de viajes que todavía no salieron, por fecha de liquidación
+    assert.ok(body.sinLiquidar.items.every((s: { diasParaSalida: number }) => s.diasParaSalida >= 0));
+    const deadlines = body.sinLiquidar.items.map((s: { diasParaLiquidar: number }) => s.diasParaLiquidar);
+    assert.deepEqual(deadlines, [...deadlines].sort((a: number, b: number) => a - b));
+    // Sale en 5 días y por defecto se liquida 1 mes antes: ya está vencido
+    const flightItem = body.sinLiquidar.items.find((s: { id: string }) => s.id === flight);
+    assert.ok(flightItem.diasParaLiquidar < 0);
 
     const docs = body.documentos.items.filter((d: { paxId: string }) => d.paxId === pax.id);
     assert.equal(docs.length, 2);

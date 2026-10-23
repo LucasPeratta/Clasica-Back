@@ -34,6 +34,8 @@ model Pax {
   File        File[]     @relation("FilePax")
   photos      PaxPhoto[]
   pdfs        PaxPdf[]
+  // Payments this pax made (shown as payer on receipts)
+  pagosHechos FilePago[]
 }
 
 model File {
@@ -92,10 +94,22 @@ model FilePago {
   importeAplicado Decimal       @db.Decimal(14, 2)
   medio           PaymentMethod
   nota            String?       @db.VarChar(300)
+  // Who paid (one of the file's pax); goes on the receipt
+  pagadorId       String?
+  pagador         Pax?          @relation(fields: [pagadorId], references: [id], onDelete: SetNull)
+  recibo          Recibo?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @default(now()) @updatedAt
 
   @@index([fileId])
+}
+
+// Receipt number of a client payment (sequential, given when the payment is registered)
+model Recibo {
+  numero    Int      @id @default(autoincrement())
+  pagoId    String   @unique
+  pago      FilePago @relation(fields: [pagoId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 }
 
 enum PaymentMethod {
@@ -104,26 +118,45 @@ enum PaymentMethod {
 }
 
 model Service {
-  id             String                  @id @default(cuid())
-  nombre         String
-  provider       String
-  localizador    String?
-  precioNeto     String
-  tarifa         String
-  currency       Currency
-  type           ServiceType             @default(AEREO)
-  obs            String?                 @db.VarChar(300)
-  fechaInicio    DateTime?
-  fechaFin       DateTime?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @default(now()) @updatedAt
-  deleted_at     DateTime?
+  id               String                  @id @default(cuid())
+  nombre           String
+  provider         String
+  localizador      String?
+  precioNeto       String
+  tarifa           String
+  currency         Currency
+  type             ServiceType             @default(AEREO)
+  obs              String?                 @db.VarChar(300)
+  fechaInicio      DateTime?
+  fechaFin         DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @default(now()) @updatedAt
+  deleted_at       DateTime?
   // Sent to the wholesaler for settlement ("liquidado"); if not, the booking can be cancelled
-  liquidado      Boolean                 @default(false)
-  liquidadoAt    DateTime?
-  File           File[]                  @relation("FileService")
+  liquidado        Boolean                 @default(false)
+  liquidadoAt      DateTime?
+  // Deadline to settle it; null = default (1 month before departure)
+  fechaLiquidacion DateTime?
+  // Photos or PDFs (e.g. the flight itinerary)
+  adjuntos         ServiceAdjunto[]
+  File             File[]                  @relation("FileService")
   // Parts of payments to the wholesaler that cover this service (its net price)
-  pagosMayorista PagoMayoristaServicio[]
+  pagosMayorista   PagoMayoristaServicio[]
+}
+
+// Photo or document attached to a service (private file in Cloudinary)
+model ServiceAdjunto {
+  id           String   @id @default(cuid())
+  url          String
+  filename     String
+  originalName String?
+  mimetype     String?
+  size         Int?
+  serviceId    String
+  service      Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@index([serviceId])
 }
 
 // Payment the agency makes to a wholesaler. One payment can cover services of several

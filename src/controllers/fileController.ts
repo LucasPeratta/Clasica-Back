@@ -46,7 +46,7 @@ const fileListInclude = {
   clients: true,
   services: {
     where: { deleted_at: null },
-    select: { id: true, type: true, precioNeto: true, tarifa: true, currency: true, liquidado: true },
+    select: { id: true, type: true, precioNeto: true, tarifa: true, currency: true, liquidado: true, fechaLiquidacion: true },
   },
   cuotas: filePaymentsInclude.cuotas,
   pagos: filePaymentsInclude.pagos,
@@ -145,7 +145,12 @@ export const getFileById = async (req: Request, res: Response) => {
       include: {
         clients: true,
         // With what has been paid to the wholesaler for each one
-        services: { include: { pagosMayorista: { select: { importe: true } } } },
+        services: {
+          include: {
+            pagosMayorista: { select: { importe: true } },
+            adjuntos: { select: { id: true, originalName: true, mimetype: true }, orderBy: { createdAt: "asc" } },
+          },
+        },
         pdfs: true,
       },
     });

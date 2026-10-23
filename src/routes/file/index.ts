@@ -16,6 +16,7 @@ import {
   addPago,
   deletePago,
   getFilePayments,
+  getReceipt,
   resetPlan,
   savePlan,
   updatePago,
@@ -40,6 +41,7 @@ router.get("/:id/pagos", getFilePayments);
 router.post("/:id/pagos", addPago);
 router.put("/:id/pagos/:pagoId", updatePago);
 router.delete("/:id/pagos/:pagoId", deletePago);
+router.get("/:id/pagos/:pagoId/recibo", getReceipt);
 router.put("/:id/plan", savePlan);
 router.delete("/:id/plan", resetPlan);
 

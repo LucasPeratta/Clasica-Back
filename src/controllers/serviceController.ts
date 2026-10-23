@@ -7,6 +7,8 @@ import {
   isPaginatedRequest,
 } from "../utils/pagination";
 import { fileNumberConditions } from "../utils/fileNumber";
+import { parseLiquidationDate } from "../utils/liquidation";
+import { MAX_PDFS, deletePdf, getOriginalName, getPdfDownloadUrl, uploadPdf } from "../utils/pdfStorage";
 
 export const addService = async (req: Request, res: Response) => {
   const service = req.body;
@@ -27,6 +29,7 @@ export const addService = async (req: Request, res: Response) => {
         obs: service.obs,
         fechaInicio: service.fechaInicio,
         fechaFin: service.fechaFin,
+        fechaLiquidacion: parseLiquidationDate(service.fechaLiquidacion),
       },
     });
     res.json({ msg: "service added SUCCESSFULLY", id: serviceData.id });
@@ -129,6 +132,7 @@ export const updateService = async (req: Request, res: Response) => {
         obs: updatedservice.obs,
         fechaInicio: updatedservice.fechaInicio,
         fechaFin: updatedservice.fechaFin,
+        fechaLiquidacion: parseLiquidationDate(updatedservice.fechaLiquidacion),
       },
     });
 
@@ -193,6 +197,85 @@ export const setServiceLiquidado = async (req: Request, res: Response) => {
     res.json({ msg: "Service updated", data: service });
   } catch (error) {
     res.status(500).json({ msg: "Error, couldn't update service", error });
+    console.log(error);
+  }
+};
+
+// Attachments of a service (photos or documents, e.g. the flight itinerary)
+const adjuntoSelect = { id: true, originalName: true, mimetype: true, createdAt: true } as const;
+
+// GET /service/:id/adjuntos
+export const getServiceAdjuntos = async (req: Request, res: Response) => {
+  try {
+    const adjuntos = await prisma.serviceAdjunto.findMany({
+      where: { serviceId: req.params.id },
+      select: adjuntoSelect,
+      orderBy: { createdAt: "asc" },
+    });
+    res.json({ data: adjuntos });
+  } catch (error) {
+    res.status(500).json({ msg: "Error al obtener los adjuntos", error });
+    console.log(error);
+  }
+};
+
+// POST /service/:id/adjuntos (multipart, up to MAX_PDFS per service)
+export const addServiceAdjuntos = async (req: Request, res: Response) => {
+  const serviceId = req.params.id;
+  const files = req.files as Express.Multer.File[];
+  if (!files || files.length === 0) return res.status(400).json({ msg: "No se eligió ningún archivo." });
+
+  try {
+    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { id: true } });
+    if (!service) return res.status(404).json({ msg: "Servicio no encontrado" });
+
+    const count = await prisma.serviceAdjunto.count({ where: { serviceId } });
+    if (count + files.length > MAX_PDFS) {
+      return res.status(400).json({ msg: `Se permiten hasta ${MAX_PDFS} archivos por servicio. Ya tiene ${count}.` });
+    }
+
+    const adjuntos = await Promise.all(
+      files.map(async (file) => {
+        const { url, filename } = await uploadPdf(file, "service_adjuntos");
+        return prisma.serviceAdjunto.create({
+          data: { url, filename, originalName: getOriginalName(file), mimetype: file.mimetype, size: file.size, serviceId },
+          select: adjuntoSelect,
+        });
+      })
+    );
+    res.json({ data: adjuntos });
+  } catch (error) {
+    res.status(500).json({ msg: "Error al subir los archivos", error });
+    console.log(error);
+  }
+};
+
+// GET /service/:id/adjuntos/:adjuntoId/url — temporary link to open it
+export const getServiceAdjuntoUrl = async (req: Request, res: Response) => {
+  try {
+    const adjunto = await prisma.serviceAdjunto.findFirst({
+      where: { id: req.params.adjuntoId, serviceId: req.params.id },
+    });
+    if (!adjunto) return res.status(404).json({ msg: "Archivo no encontrado" });
+    res.json({ url: getPdfDownloadUrl(adjunto.filename) });
+  } catch (error) {
+    res.status(500).json({ msg: "Error al abrir el archivo", error });
+    console.log(error);
+  }
+};
+
+// DELETE /service/:id/adjuntos/:adjuntoId
+export const deleteServiceAdjunto = async (req: Request, res: Response) => {
+  try {
+    const adjunto = await prisma.serviceAdjunto.findFirst({
+      where: { id: req.params.adjuntoId, serviceId: req.params.id },
+    });
+    if (!adjunto) return res.status(404).json({ msg: "Archivo no encontrado" });
+    await deletePdf(adjunto.filename);
+    await prisma.serviceAdjunto.delete({ where: { id: adjunto.id } });
+    res.json({ msg: "Archivo eliminado" });
+  } catch (error) {
+    res.status(500).json({ msg: "Error al eliminar el archivo", error });
     console.log(error);
   }
 };

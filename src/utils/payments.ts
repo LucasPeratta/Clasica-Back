@@ -28,7 +28,14 @@ export const filePaymentsInclude = {
     select: { type: true, tarifa: true, currency: true },
   },
   cuotas: { orderBy: [{ vencimiento: "asc" as const }, { createdAt: "asc" as const }] },
-  pagos: { orderBy: [{ fecha: "asc" as const }, { createdAt: "asc" as const }] },
+  pagos: {
+    orderBy: [{ fecha: "asc" as const }, { createdAt: "asc" as const }],
+    // Who paid and the receipt number
+    include: {
+      pagador: { select: { id: true, firstname: true, lastname: true } },
+      recibo: { select: { numero: true } },
+    },
+  },
 } satisfies Prisma.FileInclude;
 
 export type FileWithPayments = Prisma.FileGetPayload<{ include: typeof filePaymentsInclude }>;

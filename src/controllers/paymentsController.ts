@@ -21,12 +21,24 @@ const CHARGE_PROBLEM_MESSAGES = {
 const loadFile = (fileId: string) =>
   prisma.file.findUnique({ where: { id: fileId }, include: filePaymentsInclude });
 
-const paymentToJson = (pago: FileWithPayments["pagos"][number]) => ({
+const paymentToJson = ({ recibo, ...pago }: FileWithPayments["pagos"][number]) => ({
   ...pago,
   importe: Number(pago.importe),
   tipoCambio: pago.tipoCambio === null ? null : Number(pago.tipoCambio),
   importeAplicado: Number(pago.importeAplicado),
+  reciboNumero: recibo?.numero ?? null,
 });
+
+// Who paid: must be one of the file's pax (or nobody)
+const getPayerId = async (fileId: string, value: unknown) => {
+  if (!value) return null;
+  const pax = await prisma.pax.findFirst({
+    where: { id: String(value), File: { some: { id: fileId } } },
+    select: { id: true },
+  });
+  if (!pax) throw new PaymentError("El pasajero que pagó no está en este file.");
+  return pax.id;
+};
 
 const summaryResponse = (file: FileWithPayments) => ({
   ...getPaymentsSummary(file),
@@ -149,7 +161,11 @@ export const addPago = async (req: Request, res: Response) => {
   try {
     const file = await loadFile(fileId);
     if (!file) return res.status(404).json({ msg: "File no encontrado" });
-    await prisma.filePago.create({ data: { ...buildPayment(file, req.body ?? {}), fileId } });
+    const pagadorId = await getPayerId(fileId, req.body?.pagadorId);
+    // Each payment gets the next receipt number
+    await prisma.filePago.create({
+      data: { ...buildPayment(file, req.body ?? {}), fileId, pagadorId, recibo: { create: {} } },
+    });
     res.json(summaryResponse((await loadFile(fileId))!));
   } catch (error) {
     handlePaymentError(res, error, "Error al registrar el pago");
@@ -164,7 +180,8 @@ export const updatePago = async (req: Request, res: Response) => {
     if (!file || !file.pagos.some((p) => p.id === pagoId)) {
       return res.status(404).json({ msg: "Pago no encontrado" });
     }
-    await prisma.filePago.update({ where: { id: pagoId }, data: buildPayment(file, req.body ?? {}) });
+    const pagadorId = await getPayerId(fileId, req.body?.pagadorId);
+    await prisma.filePago.update({ where: { id: pagoId }, data: { ...buildPayment(file, req.body ?? {}), pagadorId } });
     res.json(summaryResponse((await loadFile(fileId))!));
   } catch (error) {
     handlePaymentError(res, error, "Error al modificar el pago");
@@ -180,6 +197,52 @@ export const deletePago = async (req: Request, res: Response) => {
     res.json(summaryResponse((await loadFile(fileId))!));
   } catch (error) {
     res.status(500).json({ msg: "Error al eliminar el pago", error });
+    console.log(error);
+  }
+};
+
+// GET /file/:id/pagos/:pagoId/recibo — data for the payment's receipt (the PDF is made in the
+// front). Payments registered before receipts existed get their number now
+export const getReceipt = async (req: Request, res: Response) => {
+  const { id: fileId, pagoId } = req.params;
+  try {
+    const pago = await prisma.filePago.findFirst({
+      where: { id: pagoId, fileId },
+      include: {
+        pagador: { select: { firstname: true, lastname: true, dni: true, passport: true } },
+        recibo: { select: { numero: true } },
+        file: {
+          select: {
+            numero: true,
+            anio: true,
+            destino: true,
+            clients: { select: { firstname: true, lastname: true, dni: true, passport: true }, take: 1 },
+          },
+        },
+      },
+    });
+    if (!pago) return res.status(404).json({ msg: "Pago no encontrado" });
+
+    const numero =
+      pago.recibo?.numero ??
+      (await prisma.recibo.upsert({ where: { pagoId }, update: {}, create: { pagoId } })).numero;
+    const pax = pago.pagador ?? pago.file.clients[0] ?? null;
+
+    res.json({
+      numero,
+      fecha: pago.fecha,
+      importe: Number(pago.importe),
+      moneda: pago.moneda,
+      tipoCambio: pago.tipoCambio === null ? null : Number(pago.tipoCambio),
+      medio: pago.medio,
+      nota: pago.nota,
+      pasajero: pax
+        ? { nombre: `${pax.firstname} ${pax.lastname}`, documento: pax.dni || pax.passport || null }
+        : null,
+      file: { numero: pago.file.numero, anio: pago.file.anio, destino: pago.file.destino },
+    });
+  } catch (error) {
+    res.status(500).json({ msg: "Error al armar el recibo", error });
     console.log(error);
   }
 };
@@ -229,6 +292,8 @@ export const getClientPaymentsHistory = async (req: Request, res: Response) => {
               clients: { select: { firstname: true, lastname: true }, take: 1 },
             },
           },
+          pagador: { select: { id: true, firstname: true, lastname: true } },
+          recibo: { select: { numero: true } },
         },
         orderBy: [{ fecha: "desc" }, { createdAt: "desc" }],
         skip,
@@ -243,7 +308,8 @@ export const getClientPaymentsHistory = async (req: Request, res: Response) => {
         pagos.map(({ file, ...pago }) => ({
           ...paymentToJson({ ...pago, fileId: file.id }),
           file: { id: file.id, numero: file.numero, anio: file.anio, destino: file.destino },
-          pasajero: file.clients[0] ?? null,
+          // Who paid; if not recorded, the file's first pax
+          pasajero: pago.pagador ?? file.clients[0] ?? null,
         })),
         total,
         page
@@ -264,7 +330,7 @@ export const listOwingFiles = async (terms: string[] = []) => {
   const files = await prisma.file.findMany({
     include: {
       ...filePaymentsInclude,
-      clients: { select: { firstname: true, lastname: true }, take: 1 },
+      clients: { select: { id: true, firstname: true, lastname: true } },
     },
   });
 
@@ -275,8 +341,9 @@ export const listOwingFiles = async (terms: string[] = []) => {
       terms.every((term) => {
         const t = term.toLowerCase();
         const number = file.numero && file.anio ? `${file.numero}-${file.anio}` : "";
-        const pax = file.clients[0] ? `${file.clients[0].lastname} ${file.clients[0].firstname}` : "";
-        return [file.destino, pax, number, String(file.numero ?? "")].some((v) =>
+        // Any of the file's pax
+        const paxs = file.clients.map((c) => `${c.lastname} ${c.firstname}`);
+        return [file.destino, ...paxs, number, String(file.numero ?? "")].some((v) =>
           v.toLowerCase().includes(t)
         );
       })
@@ -297,6 +364,8 @@ export const owingFileToJson = ({ file, summary }: OwingFile) => ({
   destino: file.destino,
   fechaSalida: file.fechaSalida,
   pasajero: file.clients[0] ?? null,
+  // Everyone in the file (to choose who paid)
+  pasajeros: file.clients,
   moneda: summary.moneda,
   total: summary.total,
   cobrado: summary.cobrado,

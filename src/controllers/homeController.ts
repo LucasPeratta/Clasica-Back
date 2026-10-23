@@ -2,13 +2,14 @@ import { prisma } from "../db/index";
 import { Request, Response } from "express";
 import { listOwingFiles, owingFileToJson } from "./paymentsController";
 import { listPendingSupplierServices } from "./supplierPaymentsController";
+import { liquidationDate } from "../utils/liquidation";
 
 // Home page: what needs attention today, in one request
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UPCOMING_DEPARTURES_DAYS = 15;
-// Services not yet sent to the wholesaler: all of upcoming trips (they are settled right after
-// booking); the front colors them by how close the departure is. Max listed:
+// Services not yet sent to the wholesaler: all of upcoming trips, by settlement deadline
+// (the front colors them by how close it is). Max listed:
 const MAX_UNSETTLED_ITEMS = 50;
 // Documents expiring in the next 6 months
 const DOCUMENTS_DAYS = 183;
@@ -48,7 +49,7 @@ export const getHome = async (req: Request, res: Response) => {
           liquidado: false,
           File: { some: { fechaSalida: { gte: today } } },
         },
-        select: { id: true, nombre: true, type: true, provider: true, File: { select: fileRef, take: 1 } },
+        select: { id: true, nombre: true, type: true, provider: true, fechaLiquidacion: true, File: { select: fileRef, take: 1 } },
       }),
       prisma.pax.findMany({
         where: {
@@ -164,8 +165,10 @@ export const getHome = async (req: Request, res: Response) => {
         provider: s.provider,
         file: s.File[0],
         diasParaSalida: daysUntil(s.File[0].fechaSalida, today),
+        fechaLiquidacion: liquidationDate(s.fechaLiquidacion, s.File[0].fechaSalida),
+        diasParaLiquidar: daysUntil(liquidationDate(s.fechaLiquidacion, s.File[0].fechaSalida), today),
       }))
-      .sort((a, b) => a.diasParaSalida - b.diasParaSalida);
+      .sort((a, b) => a.diasParaLiquidar - b.diasParaLiquidar);
 
     res.json({
       proximasSalidas: departures.map(({ clients, services, ...file }) => ({

@@ -17,6 +17,12 @@ const getExtension = (filename: string) => path.extname(filename).toLowerCase();
 export const isAllowedDocument = (filename: string) =>
   ALLOWED_EXTENSIONS.includes(getExtension(filename));
 
+// Service attachments (e.g. the flight itinerary) can also be photos
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+
+export const isAllowedAttachment = (filename: string) =>
+  isAllowedDocument(filename) || IMAGE_EXTENSIONS.includes(getExtension(filename));
+
 // Multer decodes original filenames as latin1; convert them back to UTF-8 (accents, ñ)
 export const getOriginalName = (file: Express.Multer.File) =>
   Buffer.from(file.originalname, "latin1").toString("utf8");
@@ -25,7 +31,7 @@ export const uploadPdf = (
   file: Express.Multer.File,
   folder: string
 ): Promise<{ url: string; filename: string }> => {
-  const extension = isAllowedDocument(file.originalname)
+  const extension = isAllowedAttachment(file.originalname)
     ? getExtension(file.originalname)
     : ".pdf";
 
@@ -51,10 +57,10 @@ export const uploadPdf = (
 export const deletePdf = (publicId: string) =>
   cloudinary.uploader.destroy(publicId, PDF_OPTIONS);
 
-// PDFs open in the browser; Word/Excel can't be shown there, so they are downloaded
+// PDFs and photos open in the browser; Word/Excel can't be shown there, so they are downloaded
 export const getPdfDownloadUrl = (publicId: string) =>
   cloudinary.utils.private_download_url(publicId, "", {
     ...PDF_OPTIONS,
-    attachment: getExtension(publicId) !== ".pdf",
+    attachment: ![".pdf", ...IMAGE_EXTENSIONS].includes(getExtension(publicId)),
     expires_at: Math.floor(Date.now() / 1000) + LINK_EXPIRATION_SECONDS,
   });
