@@ -1,6 +1,7 @@
 import { prisma } from "../db/index";
 import { Request, Response } from "express";
 import { Currency, Prisma } from "@prisma/client";
+import { fileProtectionReason, servicesPaidToSupplier } from "../utils/protection";
 import {
   buildPage,
   getPaginationParams,
@@ -165,6 +166,15 @@ export const getFileById = async (req: Request, res: Response) => {
 export const deleteFile = async (req: Request, res: Response) => {
   const fileId = req.params.id;
   try {
+    // Files with money on them are kept (AFIP)
+    const reason = await fileProtectionReason(fileId);
+    if (reason) {
+      return res.status(400).json({
+        msg: `Este file ${reason}: no se puede eliminar, se guarda para la AFIP.`,
+        errorCode: "FILE_PROTECTED",
+      });
+    }
+
     // Delete the file's PDFs from Cloudinary (cascade removes them from the database)
     const pdfs = await prisma.filePdf.findMany({ where: { fileId } });
     await Promise.all(pdfs.map((pdf) => deletePdf(pdf.filename)));
@@ -270,6 +280,18 @@ export const updateFile = async (req: Request, res: Response) => {
     }
 
     const { formData, paxIds, serviceIds } = updateData;
+
+    // Services already paid to the wholesaler can't be removed (AFIP)
+    if (serviceIds) {
+      const removed = file.services.map((s) => s.id).filter((id) => !serviceIds.includes(id));
+      const paid = await servicesPaidToSupplier(removed);
+      if (paid.length > 0) {
+        return res.status(400).json({
+          msg: `"${paid[0].nombre}" ya tiene pagos al mayorista: no se puede eliminar.`,
+          errorCode: "SERVICE_PROTECTED",
+        });
+      }
+    }
 
     // Update Paxs
     if (paxIds) {

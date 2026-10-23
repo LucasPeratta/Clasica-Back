@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { Prisma } from "@prisma/client";
 import cloudinary from "../config/cloudinary";
 import { filePaymentsInclude, getPaymentsSummary } from "../utils/payments";
+import { paxHasProtectedFiles } from "../utils/protection";
 import {
   buildPage,
   getPaginationParams,
@@ -306,6 +307,14 @@ export const updatePax = async (req: Request, res: Response) => {
 export const deletePax = async (req: Request, res: Response) => {
   const paxId = req.params.id;
   try {
+    // Travels in files with payments or an invoice: kept (AFIP)
+    if (await paxHasProtectedFiles(paxId)) {
+      return res.status(400).json({
+        msg: "Este pasajero está en files con pagos o facturados: no se puede eliminar, se guarda para la AFIP.",
+        errorCode: "PAX_PROTECTED",
+      });
+    }
+
     // Get pax with photos and pdfs before deleting
     const pax = await prisma.pax.findUnique({
       where: { id: paxId },

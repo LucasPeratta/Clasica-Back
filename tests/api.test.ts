@@ -760,6 +760,50 @@ test("facturación y balance", async (t) => {
   });
 });
 
+test("se guarda lo que tiene plata (AFIP)", async (t) => {
+  await t.test("no se puede eliminar un file con pagos del pasajero", async () => {
+    const pax = await prisma.pax.create({ data: { firstname: "Con", lastname: "Pagos" } });
+    const flight = await createService({ type: "AEREO", tarifa: "500" });
+    const file = await createFile({ destino: "ConPagos" }, [flight], [pax.id]);
+    await post(`/file/${file.id}/pagos`, { fecha: daysFromToday(0), medio: "EFECTIVO", moneda: "USD", importe: 100 });
+
+    const res = await request(`/file/${file.id}`, { method: "DELETE" });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.errorCode, "FILE_PROTECTED");
+    assert.ok(await prisma.file.findUnique({ where: { id: file.id } }));
+
+    // Y su pasajero tampoco
+    const paxRes = await request(`/pax/${pax.id}`, { method: "DELETE" });
+    assert.equal(paxRes.status, 400);
+    assert.equal(paxRes.body.errorCode, "PAX_PROTECTED");
+  });
+
+  await t.test("no se puede eliminar un file facturado ni borrar sus pagos", async () => {
+    const flight = await createService({ type: "AEREO", tarifa: "500" });
+    const file = await createFile({ destino: "Facturado" }, [flight]);
+    await post(`/file/${file.id}/pagos`, { fecha: daysFromToday(0), medio: "EFECTIVO", moneda: "USD", importe: 500 });
+    await put(`/file/${file.id}/facturacion`, { fecha: daysFromToday(0), importe: 500, moneda: "USD" });
+
+    const pagoId = (await request(`/file/${file.id}/pagos`)).body.pagos[0].id;
+    const res = await request(`/file/${file.id}/pagos/${pagoId}`, { method: "DELETE" });
+    assert.equal(res.status, 400);
+    assert.equal((await request(`/file/${file.id}`, { method: "DELETE" })).status, 400);
+  });
+
+  await t.test("no se puede eliminar un servicio ya pagado al mayorista (ni sacarlo del file)", async () => {
+    const serviceId = await createService({ provider: "ProvProtegido", precioNeto: "300" });
+    const file = await createFile({ destino: "ServicioPagado" }, [serviceId]);
+    await post("/mayoristas/pagos", { fecha: daysFromToday(0), medio: "TRANSFERENCIA", aplicaciones: [{ serviceId, importe: 300 }] });
+
+    assert.equal((await request(`/service/${serviceId}`, { method: "DELETE" })).body.errorCode, "SERVICE_PROTECTED");
+    const removed = await put(`/file/update/${file.id}`, { formData: { destino: "ServicioPagado", fechaSalida: daysFromToday(10) }, paxIds: [], serviceIds: [] });
+    assert.equal(removed.status, 400);
+    assert.equal((await prisma.service.findUniqueOrThrow({ where: { id: serviceId } })).deleted_at, null);
+    // El file tampoco se puede eliminar
+    assert.equal((await request(`/file/${file.id}`, { method: "DELETE" })).body.errorCode, "FILE_PROTECTED");
+  });
+});
+
 test("inicio", async (t) => {
   await t.test("junta salidas, cobros, mayoristas, servicios sin liquidar y documentos", async () => {
     const pax = await prisma.pax.create({

@@ -8,6 +8,7 @@ import {
 } from "../utils/pagination";
 import { fileNumberConditions } from "../utils/fileNumber";
 import { parseLiquidationDate } from "../utils/liquidation";
+import { servicesPaidToSupplier } from "../utils/protection";
 import { MAX_PDFS, deletePdf, getOriginalName, getPdfDownloadUrl, uploadPdf } from "../utils/pdfStorage";
 
 export const addService = async (req: Request, res: Response) => {
@@ -148,6 +149,14 @@ export const softDeleteService = async (req: Request, res: Response) => {
   const serviceId = req.params.id;
 
   try {
+    // Already paid to the wholesaler: kept (AFIP)
+    if ((await servicesPaidToSupplier([serviceId])).length > 0) {
+      return res.status(400).json({
+        msg: "Este servicio ya tiene pagos al mayorista: no se puede eliminar.",
+        errorCode: "SERVICE_PROTECTED",
+      });
+    }
+
     // Deleting a service also removes it from its file (and from the file's totals)
     const service = await prisma.service.update({
       where: {

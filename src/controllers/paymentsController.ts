@@ -193,6 +193,12 @@ export const updatePago = async (req: Request, res: Response) => {
 export const deletePago = async (req: Request, res: Response) => {
   const { id: fileId, pagoId } = req.params;
   try {
+    // Once invoiced, its payments are kept (AFIP)
+    const invoiced = await prisma.file.findFirst({ where: { id: fileId, facturadoAt: { not: null } }, select: { id: true } });
+    if (invoiced) {
+      return res.status(400).json({ msg: "El file está facturado: sus pagos no se pueden eliminar. Si hace falta, primero quitá la facturación." });
+    }
+
     const result = await prisma.filePago.deleteMany({ where: { id: pagoId, fileId } });
     if (result.count === 0) return res.status(404).json({ msg: "Pago no encontrado" });
     res.json(summaryResponse((await loadFile(fileId))!));
