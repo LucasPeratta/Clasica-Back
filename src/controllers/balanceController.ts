@@ -2,6 +2,8 @@ import { prisma } from "../db/index";
 import { Request, Response } from "express";
 import { Currency } from "@prisma/client";
 import { filePaymentsInclude, getPaymentsSummary } from "../utils/payments";
+import { fileNumberConditions } from "../utils/fileNumber";
+import { getPaginationParams } from "../utils/pagination";
 
 // Balance: what we invoiced to clients (files marked as invoiced) against what we paid to
 // wholesalers (what they invoice us), per month and currency. No currency conversion.
@@ -126,3 +128,53 @@ export const getBalance = async (req: Request, res: Response) => {
   }
 };
 
+
+// GET /balance/files?search= — files to invoice, found by pax, file number or destination,
+// with what the client paid and whether they are already invoiced
+export const searchFilesToInvoice = async (req: Request, res: Response) => {
+  const { terms } = getPaginationParams(req);
+  if (terms.length === 0) return res.json({ data: [] });
+
+  try {
+    const files = await prisma.file.findMany({
+      where: {
+        AND: terms.map((term) => ({
+          OR: [
+            { destino: { contains: term } },
+            ...fileNumberConditions(term),
+            { clients: { some: { OR: [{ firstname: { contains: term } }, { lastname: { contains: term } }] } } },
+          ],
+        })),
+      },
+      include: { ...filePaymentsInclude, clients: { select: { firstname: true, lastname: true } } },
+      orderBy: { fechaSalida: "desc" },
+      take: 15,
+    });
+
+    res.json({
+      data: files.map((file) => {
+        const summary = getPaymentsSummary(file);
+        return {
+          id: file.id,
+          numero: file.numero,
+          anio: file.anio,
+          destino: file.destino,
+          fechaSalida: file.fechaSalida,
+          pasajeros: file.clients,
+          moneda: summary.moneda,
+          total: summary.total,
+          cobrado: summary.cobrado,
+          falta: summary.falta,
+          estado: summary.estado,
+          facturadoAt: file.facturadoAt,
+          facturaNumero: file.facturaNumero,
+          facturaImporte: file.facturaImporte === null ? null : Number(file.facturaImporte),
+          facturaMoneda: file.facturaMoneda,
+        };
+      }),
+    });
+  } catch (error) {
+    res.status(500).json({ msg: "Error al buscar files", error });
+    console.log(error);
+  }
+};

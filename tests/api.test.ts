@@ -725,6 +725,14 @@ test("facturación y balance", async (t) => {
     await put(`/file/${file.id}/facturacion`, { fecha: daysFromToday(0), importe: 900, moneda: "USD" });
     ({ body } = await request("/balance"));
     assert.ok(!body.porFacturar.some((f: { id: string }) => f.id === file.id));
+
+    // Se encuentra para facturar por destino, con lo cobrado y si ya está facturado
+    const found = await request("/balance/files?search=ParaFacturar");
+    const match = found.body.data.find((f: { id: string }) => f.id === file.id);
+    assert.equal(match.estado, "PAGADO");
+    assert.equal(match.total, 900);
+    assert.equal(match.facturaImporte, 900);
+    assert.ok(match.facturadoAt);
   });
 });
 
