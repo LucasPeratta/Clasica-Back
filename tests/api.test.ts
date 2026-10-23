@@ -678,7 +678,9 @@ test("facturación y balance", async (t) => {
   });
 
   await t.test("balance por mes: facturado a pasajeros contra pagado a mayoristas", async () => {
-    const before = (await request(`/balance?desde=${ym(-2)}&hasta=${ym(0)}`)).body;
+    // Desde el 1° de hace dos meses hasta hoy
+    const range = `desde=${ym(-2)}-01&hasta=${ymd(0)}`;
+    const before = (await request(`/balance?${range}`)).body;
     const usd = (month: { facturado: Record<string, number>; pagado: Record<string, number> }, key: "facturado" | "pagado") =>
       month[key].USD ?? 0;
 
@@ -688,16 +690,24 @@ test("facturación y balance", async (t) => {
     await createFile({ destino: "BalanceMayorista" }, [serviceId]);
     await post("/mayoristas/pagos", { fecha: dayOfMonth(-2), medio: "TRANSFERENCIA", aplicaciones: [{ serviceId, importe: 800 }] });
 
-    const { status, body } = await request(`/balance?desde=${ym(-2)}&hasta=${ym(0)}`);
+    const { status, body } = await request(`/balance?${range}`);
     assert.equal(status, 200);
     assert.deepEqual(body.meses.map((m: { mes: string }) => m.mes), [ym(-2), ym(-1), ym(0)]);
     assert.equal(usd(body.meses[1], "facturado") - usd(before.meses[1], "facturado"), 1000);
     assert.equal(usd(body.meses[0], "pagado") - usd(before.meses[0], "pagado"), 800);
 
-    // Por defecto, los últimos 12 meses
+    // Un período de días: lo pagado el día 10 de hace dos meses queda afuera si empieza el 11
+    const narrow = await request(`/balance?desde=${ym(-2)}-11&hasta=${ymd(0)}`);
+    assert.equal(usd(narrow.body.meses[0], "pagado"), usd(body.meses[0], "pagado") - 800);
+
+    // Por defecto, este año (de enero al mes actual)
     const byDefault = await request("/balance");
-    assert.equal(byDefault.body.meses.length, 12);
-    assert.equal(byDefault.body.meses[11].mes, ym(0));
+    assert.equal(byDefault.body.meses[0].mes, `${new Date().getFullYear()}-01`);
+    assert.equal(byDefault.body.meses.at(-1).mes, ym(0));
+
+    // Fechas al revés
+    const reversed = await request(`/balance?desde=${ymd(0)}&hasta=${ym(-2)}-01`);
+    assert.equal(reversed.status, 400);
   });
 
   await t.test("para facturar: files que el pasajero ya pagó completo y no están facturados", async () => {

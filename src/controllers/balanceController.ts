@@ -7,13 +7,12 @@ import { filePaymentsInclude, getPaymentsSummary } from "../utils/payments";
 // wholesalers (what they invoice us), per month and currency. No currency conversion.
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const MONTHS_BY_DEFAULT = 12;
 
-// "2026-10" -> first day of that month (local time); invalid -> null
-const parseMonth = (value: unknown) => {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}$/.test(value)) return null;
-  const [year, month] = value.split("-").map(Number);
-  return new Date(year, month - 1, 1);
+// "2026-10-22" -> that day at 00:00 (local time); invalid -> null
+const parseDay = (value: unknown) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
 };
 const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
@@ -60,25 +59,25 @@ export const removeInvoice = async (req: Request, res: Response) => {
   }
 };
 
-// GET /balance?desde=2026-01&hasta=2026-10 (months, both included; by default the last 12).
-// meses: invoiced and paid per currency each month; porFacturar: files fully paid by the
-// client that are not invoiced yet
+// GET /balance?desde=2026-01-01&hasta=2026-10-22 (both days included; by default this year).
+// meses: invoiced and paid per currency in each month of the period (the first and last
+// months only count the days inside it); porFacturar: files fully paid by the client that are
+// not invoiced yet
 export const getBalance = async (req: Request, res: Response) => {
-  const now = new Date();
-  const hastaMonth = parseMonth(req.query.hasta) ?? new Date(now.getFullYear(), now.getMonth(), 1);
-  const desdeMonth =
-    parseMonth(req.query.desde) ?? new Date(hastaMonth.getFullYear(), hastaMonth.getMonth() - (MONTHS_BY_DEFAULT - 1), 1);
-  if (desdeMonth > hastaMonth) return res.status(400).json({ msg: "El período está al revés." });
-  const end = new Date(hastaMonth.getFullYear(), hastaMonth.getMonth() + 1, 1);
+  const today = new Date();
+  const start = parseDay(req.query.desde) ?? new Date(today.getFullYear(), 0, 1);
+  const lastDay = parseDay(req.query.hasta) ?? new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (start > lastDay) return res.status(400).json({ msg: "La fecha \"desde\" es posterior a \"hasta\"." });
+  const end = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate() + 1);
 
   try {
     const [invoiced, supplierPayments, notInvoiced] = await Promise.all([
       prisma.file.findMany({
-        where: { facturadoAt: { gte: desdeMonth, lt: end } },
+        where: { facturadoAt: { gte: start, lt: end } },
         select: { facturadoAt: true, facturaImporte: true, facturaMoneda: true },
       }),
       prisma.pagoMayorista.findMany({
-        where: { fecha: { gte: desdeMonth, lt: end } },
+        where: { fecha: { gte: start, lt: end } },
         select: { fecha: true, importe: true, moneda: true },
       }),
       prisma.file.findMany({
@@ -89,7 +88,7 @@ export const getBalance = async (req: Request, res: Response) => {
 
     // Every month of the period, also the empty ones
     const meses: { mes: string; facturado: Record<string, number>; pagado: Record<string, number> }[] = [];
-    for (let d = new Date(desdeMonth); d < end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    for (let d = new Date(start.getFullYear(), start.getMonth(), 1); d < end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
       meses.push({ mes: monthKey(d), facturado: {}, pagado: {} });
     }
     const byMonth = new Map(meses.map((m) => [m.mes, m]));
