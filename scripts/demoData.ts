@@ -1,5 +1,6 @@
 // Loads example data to try the system: npm run demo-data
 // Only the past trips (if the rest is already loaded): npm run demo-data -- --historial
+// Only the group departure (if the rest is already loaded): npm run demo-data -- --grupal
 // Removes it: npm run demo-data -- --borrar
 // Only runs against a database on this computer (localhost). Everything it creates is
 // marked with [DEMO] so it can be removed without touching real data.
@@ -37,6 +38,8 @@ const remove = async () => {
   const serviceIds = files.flatMap((f) => f.services.map((s) => s.id));
   await prisma.pagoMayorista.deleteMany({ where: { nota: { startsWith: TAG } } });
   await prisma.file.deleteMany({ where: { id: { in: files.map((f) => f.id) } } });
+  // Group departures (their reservations were deleted just above)
+  await prisma.grupo.deleteMany({ where: { obs: { startsWith: TAG } } });
   await prisma.service.deleteMany({ where: { id: { in: serviceIds } } });
   const pax = await prisma.pax.deleteMany({ where: { obs: { startsWith: TAG } } });
   console.log(`🗑  Borrados ${files.length} files, ${serviceIds.length} servicios y ${pax.count} pasajeros de prueba`);
@@ -367,6 +370,161 @@ const addHistory = async () => {
   }
   console.log(`✅ Historial: ${HISTORY.length} viajes ya realizados y pagados:`);
   await createHistory(pax);
+  await createGroupDemo(pax);
+};
+
+// Salida grupal de ejemplo: servicios en dólares y un traslado en pesos, dos planes de pago,
+// reservas con precio de preventa y de lista, pagos y parte del rooming armado
+const GROUP_SERVICES: { type: ServiceType; nombre: string; provider: string; currency: Currency; neto: number; lista: number; preventa: number }[] = [
+  { type: "AEREO", nombre: "Aéreo EZE-MAD / FCO-EZE", provider: "Iberia", currency: "USD", neto: 1200, lista: 1450, preventa: 1350 },
+  { type: "HOTEL", nombre: "Hoteles 4* con desayuno (14 noches)", provider: "Europamundo", currency: "USD", neto: 1800, lista: 2300, preventa: 2100 },
+  { type: "EXCURSION", nombre: "Excursiones y guía en español", provider: "Europamundo", currency: "USD", neto: 300, lista: 400, preventa: 380 },
+  { type: "TRASLADO", nombre: "Traslado Bahía Blanca - Ezeiza", provider: "Transporte Patagónico", currency: "PESOS", neto: 60000, lista: 90000, preventa: 90000 },
+];
+
+const GROUP_RESERVATIONS: {
+  nombre: string;
+  pax: number[];
+  plan: "Preventa" | "Normal";
+  preventa: boolean;
+  pagos: { fecha: string; importe: number; moneda: Currency; aplicada: Currency; tc?: number; nota: string }[];
+  habitacion?: "DOBLE" | "CUADRUPLE";
+}[] = [
+  {
+    nombre: "Gómez x2", pax: [0, 1], plan: "Preventa", preventa: true, habitacion: "DOBLE",
+    pagos: [
+      { fecha: "2026-09-28", importe: 2298, moneda: "USD", aplicada: "USD", nota: "Seña preventa" },
+      { fecha: "2026-09-28", importe: 180000, moneda: "PESOS", aplicada: "PESOS", nota: "Traslado" },
+    ],
+  },
+  {
+    nombre: "Fernández x4", pax: [2, 3, 4, 5], plan: "Normal", preventa: false, habitacion: "CUADRUPLE",
+    pagos: [{ fecha: "2026-10-10", importe: 3000000, moneda: "PESOS", aplicada: "USD", tc: 1200, nota: "Seña en pesos" }],
+  },
+  { nombre: "Rodríguez x2", pax: [6, 7], plan: "Normal", preventa: false, habitacion: "DOBLE", pagos: [] },
+  {
+    nombre: "Sánchez x2", pax: [10, 11], plan: "Preventa", preventa: true,
+    pagos: [{ fecha: "2026-09-30", importe: 2298, moneda: "USD", aplicada: "USD", nota: "Seña preventa" }],
+  },
+  { nombre: "López x1", pax: [8], plan: "Normal", preventa: false, pagos: [] },
+];
+
+const createGroupDemo = async (pax: Pax[]) => {
+  const titulo = "Europa Septiembre 2027";
+  const grupo = await prisma.grupo.create({
+    data: {
+      titulo,
+      destino: "Madrid, París y Roma",
+      fechaSalida: dateOf("2027-09-05"),
+      fechaRegreso: dateOf("2027-09-20"),
+      cupo: 20,
+      obs: `${TAG} Salida grupal de prueba`,
+      servicios: {
+        create: GROUP_SERVICES.map((s) => ({
+          type: s.type,
+          nombre: s.nombre,
+          provider: s.provider,
+          currency: s.currency,
+          netoPorPax: s.neto,
+          tarifaPorPax: s.lista,
+          fechaInicio: dateOf("2027-09-05"),
+        })),
+      },
+      planes: {
+        create: [
+          {
+            nombre: "Preventa",
+            cuotas: [
+              { concepto: "Seña", porcentaje: 30, vencimiento: dateOf("2026-10-01").toISOString() },
+              { concepto: "Segunda cuota", porcentaje: 30, vencimiento: dateOf("2027-02-01").toISOString() },
+              { concepto: "Saldo", porcentaje: null, vencimiento: dateOf("2027-07-15").toISOString() },
+            ],
+          },
+          {
+            nombre: "Normal",
+            cuotas: [
+              { concepto: "Seña", porcentaje: 40, vencimiento: dateOf("2026-10-15").toISOString() },
+              { concepto: "Saldo", porcentaje: null, vencimiento: dateOf("2027-07-15").toISOString() },
+            ],
+          },
+        ],
+      },
+    },
+    include: { servicios: true, planes: true },
+  });
+
+  for (const r of GROUP_RESERVATIONS) {
+    const n = r.pax.length;
+    const file = await prisma.file.create({
+      data: {
+        destino: `${titulo} · ${r.nombre}`,
+        fechaSalida: grupo.fechaSalida,
+        precioNetoTotal: "0",
+        tarifaTotal: "0",
+        obs: `${TAG} Reserva de prueba`,
+        grupoId: grupo.id,
+        reservaNombre: r.nombre,
+        grupoPlanId: grupo.planes.find((p) => p.nombre === r.plan)!.id,
+        clients: { connect: r.pax.map((i) => ({ id: pax[i].id })) },
+        services: {
+          create: grupo.servicios.map((s) => {
+            const def = GROUP_SERVICES.find((d) => d.nombre === s.nombre)!;
+            return {
+              type: s.type,
+              nombre: s.nombre,
+              provider: s.provider,
+              currency: s.currency,
+              precioNeto: String(def.neto * n),
+              tarifa: String((r.preventa ? def.preventa : def.lista) * n),
+              fechaInicio: s.fechaInicio,
+              obs: "",
+              grupoServicioId: s.id,
+            };
+          }),
+        },
+      },
+    });
+    for (const p of r.pagos) {
+      const aplicado = p.moneda === p.aplicada ? p.importe : Math.round((p.importe / p.tc!) * 100) / 100;
+      await prisma.filePago.create({
+        data: {
+          fileId: file.id,
+          fecha: dateOf(p.fecha),
+          importe: p.importe,
+          moneda: p.moneda,
+          tipoCambio: p.moneda === p.aplicada ? null : p.tc,
+          importeAplicado: aplicado,
+          monedaAplicada: p.aplicada,
+          medio: "TRANSFERENCIA",
+          nota: p.nota,
+          pagadorId: pax[r.pax[0]].id,
+          recibo: { create: {} },
+        },
+      });
+    }
+    if (r.habitacion) {
+      await prisma.grupoHabitacion.create({
+        data: { grupoId: grupo.id, tipo: r.habitacion, pasajeros: { connect: r.pax.map((i) => ({ id: pax[i].id })) } },
+      });
+    }
+  }
+  console.log(`✅ Salida grupal "${titulo}": ${GROUP_RESERVATIONS.length} reservas, 2 planes de pago y parte del rooming`);
+};
+
+// Solo la salida grupal, cuando lo demás ya está cargado
+const addGroupDemo = async () => {
+  const pax = await prisma.pax.findMany({ where: { obs: { startsWith: TAG } }, orderBy: { createdAt: "asc" } });
+  const order = (p: Pax) => Number(p.email?.match(/demo(\d+)@/)?.[1] ?? 0);
+  pax.sort((a, b) => order(a) - order(b));
+  if (pax.length < PAX.length) {
+    console.log("Primero cargá los datos de prueba: npm run demo-data");
+    return;
+  }
+  if ((await prisma.grupo.count({ where: { obs: { startsWith: TAG } } })) > 0) {
+    console.log("La salida grupal de prueba ya está cargada. Para volver a cargarla, primero: npm run demo-data -- --borrar");
+    return;
+  }
+  await createGroupDemo(pax);
 };
 
 const create = async () => {
@@ -505,6 +663,7 @@ const main = async () => {
   assertLocalDatabase();
   if (process.argv.includes("--borrar")) await remove();
   else if (process.argv.includes("--historial")) await addHistory();
+  else if (process.argv.includes("--grupal")) await addGroupDemo();
   else await create();
 };
 
