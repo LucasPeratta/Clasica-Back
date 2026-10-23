@@ -43,7 +43,12 @@ export type FileWithPayments = Prisma.FileGetPayload<{ include: typeof filePayme
 export type ChargeProblem = "MIXED_CURRENCIES" | "NOTHING_TO_CHARGE";
 
 // What has to be charged: the alternative tariff if set, otherwise the sum of the services
-export const getCharge = (file: FileWithPayments) => {
+// Only what the charge depends on (so it can also be used with light queries)
+type ChargeInput = Pick<FileWithPayments, "tarifaAlternativa" | "tarifaAlternativaMoneda"> & {
+  services: Pick<FileWithPayments["services"][number], "currency" | "tarifa">[];
+};
+
+export const getCharge = (file: ChargeInput) => {
   const alternative = toNumber(file.tarifaAlternativa);
   if (file.tarifaAlternativa && alternative > 0 && file.tarifaAlternativaMoneda) {
     return { currency: file.tarifaAlternativaMoneda, total: round2(alternative), problem: null };

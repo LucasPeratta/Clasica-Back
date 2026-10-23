@@ -120,16 +120,24 @@ export const searchServicesToPay = async (req: Request, res: Response) => {
 // wholesaler, by due date. Search also matches the wholesaler name
 // Services not fully paid to the wholesaler, by due date. Also used by the home page
 export const listPendingSupplierServices = async (terms: string[] = []) => {
-  const services = await prisma.service.findMany({
-    where: {
-      deleted_at: null,
-      File: { some: {} },
-      AND: terms.map((term) => ({
-        OR: [{ provider: { contains: term } }, { nombre: { contains: term } }, { File: { some: fileSearch(term) } }],
-      })),
-    },
-    include: serviceInclude,
-  });
+  const where: Prisma.ServiceWhereInput = {
+    deleted_at: null,
+    File: { some: {} },
+    AND: terms.map((term) => ({
+      OR: [{ provider: { contains: term } }, { nombre: { contains: term } }, { File: { some: fileSearch(term) } }],
+    })),
+  };
+  // Quick first pass (net price against what was paid) so services paid long ago are skipped
+  const [candidates, paid] = await Promise.all([
+    prisma.service.findMany({ where, select: { id: true, precioNeto: true } }),
+    prisma.pagoMayoristaServicio.groupBy({ by: ["serviceId"], _sum: { importe: true } }),
+  ]);
+  const paidByService = new Map(paid.map((p) => [p.serviceId, Number(p._sum.importe ?? 0)]));
+  const pendingIds = candidates
+    .filter((s) => (Number(s.precioNeto) || 0) - (paidByService.get(s.id) ?? 0) > 0.009)
+    .map((s) => s.id);
+
+  const services = await prisma.service.findMany({ where: { id: { in: pendingIds } }, include: serviceInclude });
 
   return services
     .map(supplierStatus)

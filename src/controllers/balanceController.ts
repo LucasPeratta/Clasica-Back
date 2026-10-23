@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { Currency } from "@prisma/client";
 import { filePaymentsInclude, getPaymentsSummary } from "../utils/payments";
 import { fileNumberConditions } from "../utils/fileNumber";
+import { getFileBalances } from "../utils/fileBalances";
 import { getPaginationParams } from "../utils/pagination";
 
 // Balance: what we invoiced to clients (files marked as invoiced) against what we paid to
@@ -82,10 +83,13 @@ export const getBalance = async (req: Request, res: Response) => {
         where: { fecha: { gte: start, lt: end } },
         select: { fecha: true, importe: true, moneda: true },
       }),
-      prisma.file.findMany({
-        where: { facturadoAt: null },
-        include: { ...filePaymentsInclude, clients: { select: { firstname: true, lastname: true }, take: 1 } },
-      }),
+      // Not invoiced and fully paid (checked quickly first, then calculated in detail)
+      getFileBalances({ facturadoAt: null }).then((balances) =>
+        prisma.file.findMany({
+          where: { id: { in: balances.filter((f) => f.chargeable && f.paid >= f.target - 0.009).map((f) => f.id) } },
+          include: { ...filePaymentsInclude, clients: { select: { firstname: true, lastname: true }, take: 1 } },
+        })
+      ),
     ]);
 
     // Every month of the period, also the empty ones

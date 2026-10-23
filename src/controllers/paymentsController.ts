@@ -10,6 +10,7 @@ import {
   getCharge,
   getPaymentsSummary,
 } from "../utils/payments";
+import { getFileBalances } from "../utils/fileBalances";
 import { PAGE_SIZE, buildPage, getDateRange, getPaginationParams } from "../utils/pagination";
 
 const CHARGE_PROBLEM_MESSAGES = {
@@ -327,7 +328,10 @@ export const getClientPaymentsHistory = async (req: Request, res: Response) => {
 // Files that still owe money, by next due date (optionally filtered by search terms).
 // Also used by the home page
 export const listOwingFiles = async (terms: string[] = []) => {
+  // Only files that may owe something get the full calculation (old paid trips are skipped)
+  const candidates = (await getFileBalances()).filter((f) => f.chargeable && f.target - f.paid > 0.009);
   const files = await prisma.file.findMany({
+    where: { id: { in: candidates.map((f) => f.id) } },
     include: {
       ...filePaymentsInclude,
       clients: { select: { id: true, firstname: true, lastname: true } },
