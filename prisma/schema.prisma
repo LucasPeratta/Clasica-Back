@@ -63,6 +63,12 @@ model File {
   planPersonalizado       Boolean     @default(false)
   cuotas                  FileCuota[]
   pagos                   FilePago[]
+  // Invoiced to the client: the whole file at once (usually when fully paid). Amount and
+  // currency are kept as invoiced, even if services change later
+  facturadoAt             DateTime?
+  facturaNumero           String?     @db.VarChar(50)
+  facturaImporte          Decimal?    @db.Decimal(14, 2)
+  facturaMoneda           Currency?
 
   @@unique([anio, numero])
 }

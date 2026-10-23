@@ -21,6 +21,7 @@ import {
   savePlan,
   updatePago,
 } from "../../controllers/paymentsController";
+import { removeInvoice, setInvoice } from "../../controllers/balanceController";
 import { uploadPdfs } from "../../middlewares/upload";
 
 router.get("/", getAllFile);
@@ -44,5 +45,9 @@ router.delete("/:id/pagos/:pagoId", deletePago);
 router.get("/:id/pagos/:pagoId/recibo", getReceipt);
 router.put("/:id/plan", savePlan);
 router.delete("/:id/plan", resetPlan);
+
+// Invoicing: the whole file at once
+router.put("/:id/facturacion", setInvoice);
+router.delete("/:id/facturacion", removeInvoice);
 
 export default router;

@@ -639,6 +639,85 @@ test("pagos a mayoristas", async (t) => {
   });
 });
 
+test("facturación y balance", async (t) => {
+  // "YYYY-MM" de un mes relativo al actual
+  const ym = (offset: number) => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + offset);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+  const dayOfMonth = (offset: number) => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(10);
+    d.setMonth(d.getMonth() + offset);
+    return d.toISOString();
+  };
+
+  await t.test("se marca el file como facturado (y se puede quitar)", async () => {
+    const file = await createFile({ destino: "FacturaDestino" });
+    const bad = await put(`/file/${file.id}/facturacion`, { fecha: daysFromToday(0), importe: 0, moneda: "USD" });
+    assert.equal(bad.status, 400);
+
+    const ok = await put(`/file/${file.id}/facturacion`, { fecha: daysFromToday(0), importe: 2500, moneda: "USD", numero: "A-0001-123" });
+    assert.equal(ok.status, 200);
+    let { body } = await request(`/file/${file.id}`);
+    assert.equal(Number(body.data.facturaImporte), 2500);
+    assert.equal(body.data.facturaNumero, "A-0001-123");
+    assert.ok(body.data.facturadoAt);
+
+    // Editar otros datos del file no borra la facturación
+    await put(`/file/update/${file.id}`, { formData: { destino: "FacturaDestino 2", fechaSalida: daysFromToday(10) }, paxIds: [], serviceIds: [] });
+    ({ body } = await request(`/file/${file.id}`));
+    assert.equal(Number(body.data.facturaImporte), 2500);
+
+    await request(`/file/${file.id}/facturacion`, { method: "DELETE" });
+    ({ body } = await request(`/file/${file.id}`));
+    assert.equal(body.data.facturadoAt, null);
+  });
+
+  await t.test("balance por mes: facturado a pasajeros contra pagado a mayoristas", async () => {
+    const before = (await request(`/balance?desde=${ym(-2)}&hasta=${ym(0)}`)).body;
+    const usd = (month: { facturado: Record<string, number>; pagado: Record<string, number> }, key: "facturado" | "pagado") =>
+      month[key].USD ?? 0;
+
+    const invoiced = await createFile({ destino: "BalanceFacturado" });
+    await put(`/file/${invoiced.id}/facturacion`, { fecha: dayOfMonth(-1), importe: 1000, moneda: "USD" });
+    const serviceId = await createService({ provider: "ProvBalance", precioNeto: "800" });
+    await createFile({ destino: "BalanceMayorista" }, [serviceId]);
+    await post("/mayoristas/pagos", { fecha: dayOfMonth(-2), medio: "TRANSFERENCIA", aplicaciones: [{ serviceId, importe: 800 }] });
+
+    const { status, body } = await request(`/balance?desde=${ym(-2)}&hasta=${ym(0)}`);
+    assert.equal(status, 200);
+    assert.deepEqual(body.meses.map((m: { mes: string }) => m.mes), [ym(-2), ym(-1), ym(0)]);
+    assert.equal(usd(body.meses[1], "facturado") - usd(before.meses[1], "facturado"), 1000);
+    assert.equal(usd(body.meses[0], "pagado") - usd(before.meses[0], "pagado"), 800);
+
+    // Por defecto, los últimos 12 meses
+    const byDefault = await request("/balance");
+    assert.equal(byDefault.body.meses.length, 12);
+    assert.equal(byDefault.body.meses[11].mes, ym(0));
+  });
+
+  await t.test("para facturar: files que el pasajero ya pagó completo y no están facturados", async () => {
+    const flight = await createService({ type: "AEREO", tarifa: "900" });
+    const file = await createFile({ destino: "ParaFacturar" }, [flight]);
+    let { body } = await request("/balance");
+    assert.ok(!body.porFacturar.some((f: { id: string }) => f.id === file.id));
+
+    await post(`/file/${file.id}/pagos`, { fecha: daysFromToday(0), medio: "EFECTIVO", moneda: "USD", importe: 900 });
+    ({ body } = await request("/balance"));
+    const row = body.porFacturar.find((f: { id: string }) => f.id === file.id);
+    assert.equal(row.total, 900);
+    assert.equal(row.moneda, "USD");
+
+    await put(`/file/${file.id}/facturacion`, { fecha: daysFromToday(0), importe: 900, moneda: "USD" });
+    ({ body } = await request("/balance"));
+    assert.ok(!body.porFacturar.some((f: { id: string }) => f.id === file.id));
+  });
+});
+
 test("inicio", async (t) => {
   await t.test("junta salidas, cobros, mayoristas, servicios sin liquidar y documentos", async () => {
     const pax = await prisma.pax.create({

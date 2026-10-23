@@ -26,6 +26,7 @@ import userRoutes from "./user";
 import cobranzasRoutes from "./cobranzas";
 import mayoristasRoutes from "./mayoristas";
 import inicioRoutes from "./inicio";
+import balanceRoutes from "./balance";
 import authRoutes from "./auth";
 
 // Auth routes go before protect so login stays public (register is protected inside)
@@ -42,5 +43,6 @@ router.use("/user", userRoutes);
 router.use("/cobranzas", cobranzasRoutes);
 router.use("/mayoristas", mayoristasRoutes);
 router.use("/inicio", inicioRoutes);
+router.use("/balance", balanceRoutes);
 
 export default router;
