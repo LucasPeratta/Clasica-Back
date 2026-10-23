@@ -29,7 +29,8 @@ export const addService = async (req: Request, res: Response) => {
         obs: service.obs,
         fechaInicio: service.fechaInicio,
         fechaFin: service.fechaFin,
-        fechaLiquidacion: parseLiquidationDate(service.fechaLiquidacion),
+        // Flights have no settlement date
+        fechaLiquidacion: service.type === "AEREO" ? null : parseLiquidationDate(service.fechaLiquidacion),
       },
     });
     res.json({ msg: "service added SUCCESSFULLY", id: serviceData.id });
@@ -132,7 +133,7 @@ export const updateService = async (req: Request, res: Response) => {
         obs: updatedservice.obs,
         fechaInicio: updatedservice.fechaInicio,
         fechaFin: updatedservice.fechaFin,
-        fechaLiquidacion: parseLiquidationDate(updatedservice.fechaLiquidacion),
+        fechaLiquidacion: updatedservice.type === "AEREO" ? null : parseLiquidationDate(updatedservice.fechaLiquidacion),
       },
     });
 

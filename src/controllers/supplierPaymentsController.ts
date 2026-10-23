@@ -8,7 +8,8 @@ import { liquidationDate } from "../utils/liquidation";
 // Payments the agency makes to wholesalers. Each service's net price (precioNeto) is what
 // has to be paid; a payment can be split among services of several files.
 
-// Supplier due date: the service's settlement deadline (by default one month before departure)
+// Supplier due date: flights when the ticket is issued (when the service was loaded); the rest,
+// the service's settlement deadline (by default one month before departure)
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -40,7 +41,11 @@ export const supplierStatus = (service: ServiceWithPayments) => {
   const neto = round2(Number(service.precioNeto) || 0);
   const pagado = round2(service.pagosMayorista.reduce((sum, p) => sum + Number(p.importe), 0));
   const file = service.File[0];
-  const vencimiento = file ? liquidationDate(service.fechaLiquidacion, file.fechaSalida) : null;
+  const vencimiento = !file
+    ? null
+    : service.type === "AEREO"
+      ? service.createdAt
+      : liquidationDate(service.fechaLiquidacion, file.fechaSalida);
   return {
     id: service.id,
     nombre: service.nombre,

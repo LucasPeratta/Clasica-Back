@@ -626,6 +626,13 @@ test("pagos a mayoristas", async (t) => {
     assert.deepEqual(week.body.data.map((r: { file: { destino: string } }) => r.file.destino), ["LiquidaCustom"]);
     assert.deepEqual(week.body.totals, { USD: 200 });
 
+    // Los aéreos se pagan al emitirlos (cuando se cargan), sin fecha de liquidación
+    const flight = await createService({ type: "AEREO", provider: "ProvLiquida", precioNeto: "50", fechaLiquidacion: daysFromToday(20) });
+    await createFile({ destino: "LiquidaAereo", fechaSalida: departure.toISOString() }, [flight]);
+    const withFlight = await request("/mayoristas/pendientes?page=1&search=LiquidaAereo");
+    assert.equal(withFlight.body.data[0].diasParaVencer, 0);
+    assert.equal((await prisma.service.findUniqueOrThrow({ where: { id: flight } })).fechaLiquidacion, null);
+
     // La fecha elegida se guarda al editar, y vacía vuelve a la de por defecto
     const updated = await put(`/service/${custom}`, { provider: "ProvLiquida", fechaLiquidacion: null });
     assert.equal(updated.body.data.fechaLiquidacion, null);
@@ -643,7 +650,8 @@ test("inicio", async (t) => {
       },
     });
     const flight = await createService({ type: "AEREO", provider: "ProvInicio", precioNeto: "500", tarifa: "700" });
-    const file = await createFile({ destino: "InicioDestino", fechaSalida: daysFromToday(5) }, [flight], [pax.id]);
+    const hotel = await createService({ type: "HOTEL", provider: "ProvInicio", precioNeto: "300", tarifa: "400" });
+    const file = await createFile({ destino: "InicioDestino", fechaSalida: daysFromToday(5) }, [flight, hotel], [pax.id]);
 
     const { status, body } = await request("/inicio");
     assert.equal(status, 200);
@@ -665,9 +673,11 @@ test("inicio", async (t) => {
     assert.ok(body.sinLiquidar.items.every((s: { diasParaSalida: number }) => s.diasParaSalida >= 0));
     const deadlines = body.sinLiquidar.items.map((s: { diasParaLiquidar: number }) => s.diasParaLiquidar);
     assert.deepEqual(deadlines, [...deadlines].sort((a: number, b: number) => a - b));
-    // Sale en 5 días y por defecto se liquida 1 mes antes: ya está vencido
-    const flightItem = body.sinLiquidar.items.find((s: { id: string }) => s.id === flight);
-    assert.ok(flightItem.diasParaLiquidar < 0);
+    // El hotel sale en 5 días y por defecto se liquida 1 mes antes: ya está vencido.
+    // El aéreo no se liquida (se paga al emitirlo)
+    const hotelItem = body.sinLiquidar.items.find((s: { id: string }) => s.id === hotel);
+    assert.ok(hotelItem.diasParaLiquidar < 0);
+    assert.ok(!body.sinLiquidar.items.some((s: { id: string }) => s.id === flight));
 
     const docs = body.documentos.items.filter((d: { paxId: string }) => d.paxId === pax.id);
     assert.equal(docs.length, 2);

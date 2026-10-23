@@ -1,5 +1,6 @@
 // When a service has to be settled ("liquidado") with the wholesaler. Each service can have
 // its own deadline; if it has none, it's one month before departure.
+// Flights are not settled: they are paid when the ticket is issued.
 
 // Same day one month earlier (31/03 -> 28 or 29/02)
 export const oneMonthBefore = (date: Date) => {

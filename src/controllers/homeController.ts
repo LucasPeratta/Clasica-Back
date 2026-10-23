@@ -8,7 +8,8 @@ import { liquidationDate } from "../utils/liquidation";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UPCOMING_DEPARTURES_DAYS = 15;
-// Services not yet sent to the wholesaler: all of upcoming trips, by settlement deadline
+// Services not yet sent to the wholesaler (not flights: they are paid when issued): all of
+// upcoming trips, by settlement deadline
 // (the front colors them by how close it is). Max listed:
 const MAX_UNSETTLED_ITEMS = 50;
 // Documents expiring in the next 6 months
@@ -37,7 +38,8 @@ export const getHome = async (req: Request, res: Response) => {
         select: {
           ...fileRef,
           clients: { select: { firstname: true, lastname: true } },
-          services: { where: { deleted_at: null }, select: { liquidado: true } },
+          // Flights are not settled (paid when issued)
+          services: { where: { deleted_at: null, type: { not: "AEREO" } }, select: { liquidado: true } },
         },
         orderBy: { fechaSalida: "asc" },
       }),
@@ -47,6 +49,7 @@ export const getHome = async (req: Request, res: Response) => {
         where: {
           deleted_at: null,
           liquidado: false,
+          type: { not: "AEREO" },
           File: { some: { fechaSalida: { gte: today } } },
         },
         select: { id: true, nombre: true, type: true, provider: true, fechaLiquidacion: true, File: { select: fileRef, take: 1 } },
