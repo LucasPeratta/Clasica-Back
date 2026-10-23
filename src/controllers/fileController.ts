@@ -153,6 +153,8 @@ export const getFileById = async (req: Request, res: Response) => {
           },
         },
         pdfs: true,
+        // How many client payments it has (files with payments can't be deleted)
+        _count: { select: { pagos: true } },
       },
     });
 
