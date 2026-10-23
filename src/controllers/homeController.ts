@@ -61,9 +61,10 @@ export const getHome = async (req: Request, res: Response) => {
           OR: [
             { dniVto: { gte: today, lt: addDays(today, DOCUMENTS_DAYS) } },
             { passportVto: { gte: today, lt: addDays(today, DOCUMENTS_DAYS) } },
+            { visaUsaVto: { gte: today, lt: addDays(today, DOCUMENTS_DAYS) } },
           ],
         },
-        select: { id: true, firstname: true, lastname: true, dniVto: true, passportVto: true },
+        select: { id: true, firstname: true, lastname: true, dniVto: true, passportVto: true, visaUsaVto: true },
       }),
       prisma.file.findMany({
         where: { fechaSalida: { gte: today, lt: addDays(today, DOCUMENTS_TRIPS_DAYS) } },
@@ -153,7 +154,8 @@ export const getHome = async (req: Request, res: Response) => {
       }
     }
     for (const pax of expiringPax) {
-      for (const [documento, expiry] of [["DNI", pax.dniVto], ["Pasaporte", pax.passportVto]] as const) {
+      // The US visa only in this list (not every trip needs it)
+      for (const [documento, expiry] of [["DNI", pax.dniVto], ["Pasaporte", pax.passportVto], ["Visa EE.UU.", pax.visaUsaVto]] as const) {
         if (!expiry || expiry < today || expiry >= addDays(today, DOCUMENTS_DAYS)) continue;
         const key = `${pax.id}-${documento}`;
         if (seen.has(key)) continue;

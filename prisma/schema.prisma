@@ -24,6 +24,9 @@ model Pax {
   dniVto       DateTime?
   passport     String?
   passportVto  DateTime?
+  // US visa (number and expiry): needed for trips to the United States
+  visaUsa      String?
+  visaUsaVto   DateTime?
   dob          DateTime?
   adress       String?
   email        String?           @unique
@@ -41,13 +44,13 @@ model Pax {
 }
 
 model File {
-  id                      String      @id @default(cuid())
+  id                      String          @id @default(cuid())
   // Automatic correlative number per year of creation, shown as "55-2026"
   numero                  Int?
   anio                    Int?
   // Free optional reference (shown as "Referencia" in the app)
   nro                     String?
-  obs                     String?     @db.VarChar(300)
+  obs                     String?         @db.VarChar(300)
   precioNetoTotal         String
   tarifaTotal             String
   // Price actually charged to the client (decided by the agency), in a single currency
@@ -55,28 +58,30 @@ model File {
   tarifaAlternativaMoneda Currency?
   destino                 String
   fechaSalida             DateTime
-  createdAt               DateTime    @default(now())
-  updatedAt               DateTime    @default(now()) @updatedAt
-  clients                 Pax[]       @relation("FilePax")
-  services                Service[]   @relation("FileService")
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @default(now()) @updatedAt
+  clients                 Pax[]           @relation("FilePax")
+  services                Service[]       @relation("FileService")
   pdfs                    FilePdf[]
   // Client payments. While planPersonalizado is false the plan is the automatic one
   // (deposit = flights, balance 25 days before departure) and cuotas is not used
-  planPersonalizado       Boolean     @default(false)
+  planPersonalizado       Boolean         @default(false)
   cuotas                  FileCuota[]
   pagos                   FilePago[]
   // Invoiced to the client: the whole file at once (usually when fully paid). Amount and
   // currency are kept as invoiced, even if services change later
   facturadoAt             DateTime?
-  facturaNumero           String?     @db.VarChar(50)
-  facturaImporte          Decimal?    @db.Decimal(14, 2)
+  facturaNumero           String?         @db.VarChar(50)
+  facturaImporte          Decimal?        @db.Decimal(14, 2)
   facturaMoneda           Currency?
   // Reservation of a group departure (no file number; destino = "<group> · <reservation>")
   grupoId                 String?
-  grupo                   Grupo?      @relation(fields: [grupoId], references: [id])
+  grupo                   Grupo?          @relation(fields: [grupoId], references: [id])
   reservaNombre           String?
+  // Room type of the reservation (hotels priced by room type use it)
+  habitacionTipo          HabitacionTipo?
   grupoPlanId             String?
-  grupoPlan               GrupoPlan?  @relation(fields: [grupoPlanId], references: [id], onDelete: SetNull)
+  grupoPlan               GrupoPlan?      @relation(fields: [grupoPlanId], references: [id], onDelete: SetNull)
 
   @@unique([anio, numero])
   @@index([grupoId])
@@ -275,6 +280,8 @@ model Grupo {
   fechaRegreso DateTime?
   // Seats; null = no limit
   cupo         Int?
+  // Trip to the US: every pax needs a valid US visa
+  visaUsa      Boolean           @default(false)
   obs          String?           @db.VarChar(500)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @default(now()) @updatedAt
@@ -288,20 +295,29 @@ model Grupo {
 // Service of the group itinerary with its list price per passenger (each reservation copies it
 // and can change the price, e.g. presale)
 model GrupoServicio {
-  id               String      @id @default(cuid())
-  grupoId          String
-  grupo            Grupo       @relation(fields: [grupoId], references: [id], onDelete: Cascade)
-  type             ServiceType @default(AEREO)
-  nombre           String
-  provider         String
-  currency         Currency
-  netoPorPax       Decimal     @db.Decimal(14, 2)
-  tarifaPorPax     Decimal     @db.Decimal(14, 2)
-  fechaInicio      DateTime?
-  fechaFin         DateTime?
-  fechaLiquidacion DateTime?
-  createdAt        DateTime    @default(now())
-  servicios        Service[]
+  id                String      @id @default(cuid())
+  grupoId           String
+  grupo             Grupo       @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  type              ServiceType @default(AEREO)
+  nombre            String
+  provider          String
+  currency          Currency
+  netoPorPax        Decimal     @db.Decimal(14, 2)
+  tarifaPorPax      Decimal     @db.Decimal(14, 2)
+  // How it's priced: POR_PASAJERO (optionally cheaper for children), POR_RESERVA (one price per
+  // reservation, e.g. a car per family) or POR_HABITACION (per person by room type, e.g. hotels)
+  modoPrecio        String      @default("POR_PASAJERO")
+  // Children under edadMenor (at departure) pay netoMenor/tarifaMenor
+  edadMenor         Int?
+  netoMenor         Decimal?    @db.Decimal(14, 2)
+  tarifaMenor       Decimal?    @db.Decimal(14, 2)
+  // POR_HABITACION: { SINGLE: { neto, tarifa }, DOBLE: {...}, ... } per person
+  preciosHabitacion Json?
+  fechaInicio       DateTime?
+  fechaFin          DateTime?
+  fechaLiquidacion  DateTime?
+  createdAt         DateTime    @default(now())
+  servicios         Service[]
 
   @@index([grupoId])
 }

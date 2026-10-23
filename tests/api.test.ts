@@ -967,6 +967,57 @@ test("salidas grupales", async (t) => {
     assert.equal((await request(`/grupos/${grupoId}`, { method: "DELETE" })).status, 200);
   });
 
+  await t.test("precios: menores más baratos, por reserva y según la habitación", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Precios", fechaSalida: "2027-02-17T12:00:00.000Z" });
+    await addService(grupoId, { type: "EXCURSION", nombre: "Parques", netoPorPax: 500, tarifaPorPax: 600, edadMenor: 10, netoMenor: 400, tarifaMenor: 450 });
+    await addService(grupoId, { type: "TRASLADO", nombre: "Auto", modoPrecio: "POR_RESERVA", netoPorPax: 500, tarifaPorPax: 600 });
+    assert.equal((await addService(grupoId, { nombre: "Hotel sin precios", modoPrecio: "POR_HABITACION" })).status, 400);
+    await addService(grupoId, {
+      nombre: "Hotel",
+      modoPrecio: "POR_HABITACION",
+      preciosHabitacion: { DOBLE: { neto: 800, tarifa: 1000 }, CUADRUPLE: { neto: 550, tarifa: 700 } },
+    });
+
+    // Familia de 4: dos adultos y dos chicos (uno de 9 y uno de 12 al salir)
+    const adults = await Promise.all([newPax("Familia"), newPax("Familia")]);
+    const child9 = await prisma.pax.create({ data: { firstname: "Nene", lastname: "Familia", dob: new Date("2017-06-01T12:00:00") } });
+    const child12 = await prisma.pax.create({ data: { firstname: "Grande", lastname: "Familia", dob: new Date("2014-06-01T12:00:00") } });
+    const familyId = (await post(`/grupos/${grupoId}/reservas`, { nombre: "Familia x4", paxIds: [...adults.map((a) => a.id), child9.id, child12.id] })).body.id;
+    const family = await prisma.file.findUniqueOrThrow({ where: { id: familyId }, include: { services: true } });
+    const price = (nombre: string) => Number(family.services.find((s) => s.nombre === nombre)!.tarifa);
+    assert.equal(price("Parques"), 600 * 3 + 450); // solo el de 9 paga como menor
+    assert.equal(price("Auto"), 600); // uno por familia
+    assert.equal(price("Hotel"), 700 * 4); // cuádruple
+    assert.equal(family.habitacionTipo, "CUADRUPLE");
+
+    // Una persona sola que comparte una doble con alguien de otra reserva
+    const solo = await newPax("Sola");
+    const soloId = (await post(`/grupos/${grupoId}/reservas`, { nombre: "Sola x1", paxIds: [solo.id], habitacionTipo: "DOBLE" })).body.id;
+    const single = await prisma.file.findUniqueOrThrow({ where: { id: soloId }, include: { services: true } });
+    assert.equal(Number(single.services.find((s) => s.nombre === "Hotel")!.tarifa), 1000);
+  });
+
+  await t.test("visa de EE.UU.: avisa quién no la tiene o le vence antes de volver", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Visa", visaUsa: true, fechaSalida: daysFromToday(60), fechaRegreso: daysFromToday(75) });
+    await addService(grupoId, {});
+    const sinVisa = await newPax("SinVisa");
+    const vencida = await prisma.pax.create({ data: { firstname: "Pax", lastname: "VisaCorta", visaUsa: "A1", visaUsaVto: new Date(daysFromToday(70)) } });
+    const ok = await prisma.pax.create({ data: { firstname: "Pax", lastname: "VisaOk", visaUsa: "B2", visaUsaVto: new Date(daysFromToday(900)) } });
+    await post(`/grupos/${grupoId}/reservas`, { nombre: "Visas x3", paxIds: [sinVisa.id, vencida.id, ok.id] });
+
+    const g = await detail(grupoId);
+    const problems = Object.fromEntries(g.visaProblemas.map((v: { paxId: string; problema: string }) => [v.paxId, v.problema]));
+    assert.match(problems[sinVisa.id], /No tiene la visa/);
+    assert.match(problems[vencida.id], /vence antes de volver/);
+    assert.equal(problems[ok.id], undefined);
+    assert.ok("visaUsaVto" in g.pasajeros[0]);
+
+    // Se guarda desde el pasajero (en mayúsculas)
+    const res = await put(`/pax/update/${sinVisa.id}`, { firstname: "Pax", lastname: "SinVisa", visaUsa: "c3 ", visaUsaVto: daysFromToday(800) });
+    assert.equal(res.status, 200);
+    assert.equal((await prisma.pax.findUniqueOrThrow({ where: { id: sinVisa.id } })).visaUsa, "C3");
+  });
+
   await t.test("en el inicio, una salida grupal próxima es una sola línea", async () => {
     const grupoId = await newGroup({ titulo: "Grupo Inicio", fechaSalida: daysFromToday(5) });
     await addService(grupoId, {});

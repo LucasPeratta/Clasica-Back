@@ -4,6 +4,7 @@ import { Currency, HabitacionTipo, Prisma, ServiceType } from "@prisma/client";
 import { buildPage, getPaginationParams } from "../utils/pagination";
 import { filePaymentsInclude, getPaymentsSummary, GroupPlanInstallment, PaymentsStatus } from "../utils/payments";
 import { parseLiquidationDate } from "../utils/liquidation";
+import { PRICING_MODES, RoomPrices, linePrice, roomTypeFor } from "../utils/groupPricing";
 import { MAX_PDFS, deletePdf, getOriginalName, getPdfDownloadUrl, uploadPdf } from "../utils/pdfStorage";
 
 // Group departures: a trip sold per person. Each reservation (a family, a couple...) is a File
@@ -41,6 +42,8 @@ const paxSelect = {
   passport: true,
   passportVto: true,
   dob: true,
+  visaUsa: true,
+  visaUsaVto: true,
 } as const;
 
 const reservaInclude = {
@@ -84,6 +87,7 @@ const reservaToJson = (r: Reserva) => {
     id: r.id,
     nombre: r.reservaNombre,
     planId: r.grupoPlanId,
+    habitacionTipo: r.habitacionTipo,
     pasajeros: r.clients,
     servicios: r.services.length,
     estado: summary.estado,
@@ -162,7 +166,15 @@ const groupData = (body: Record<string, unknown>) => {
   if (!fechaSalida) throw new GroupError("Falta la fecha de salida.");
   if (fechaRegreso && fechaRegreso < fechaSalida) throw new GroupError("El regreso es anterior a la salida.");
   if (cupo !== null && !(cupo > 0)) throw new GroupError("El cupo tiene que ser un número mayor a cero.");
-  return { titulo, destino, fechaSalida, fechaRegreso, cupo, obs: String(body.obs ?? "").trim().slice(0, 500) || null };
+  return {
+    titulo,
+    destino,
+    fechaSalida,
+    fechaRegreso,
+    cupo,
+    visaUsa: body.visaUsa === true,
+    obs: String(body.obs ?? "").trim().slice(0, 500) || null,
+  };
 };
 
 // POST /grupos
@@ -195,11 +207,29 @@ export const getGroup = async (req: Request, res: Response) => {
     res.json({
       data: {
         ...rest,
-        servicios: servicios.map((s) => ({ ...s, netoPorPax: Number(s.netoPorPax), tarifaPorPax: Number(s.tarifaPorPax) })),
+        servicios: servicios.map((s) => ({
+          ...s,
+          netoPorPax: Number(s.netoPorPax),
+          tarifaPorPax: Number(s.tarifaPorPax),
+          netoMenor: s.netoMenor === null ? null : Number(s.netoMenor),
+          tarifaMenor: s.tarifaMenor === null ? null : Number(s.tarifaMenor),
+        })),
         reservas: reservas.map(reservaToJson),
         habitaciones,
         pasajeros,
         sinHabitacion: pasajeros.filter((p) => !enHabitacion.has(p.id)),
+        // Trip to the US: who has no visa loaded or one that expires before coming back
+        visaProblemas: grupo.visaUsa
+          ? pasajeros.flatMap((p) => {
+              const vuelta = grupo.fechaRegreso ?? grupo.fechaSalida;
+              const problema = !p.visaUsaVto
+                ? "No tiene la visa de EE.UU. cargada"
+                : p.visaUsaVto < vuelta
+                  ? "La visa de EE.UU. vence antes de volver"
+                  : null;
+              return problema ? [{ paxId: p.id, nombre: `${p.firstname} ${p.lastname}`, reserva: p.reserva, problema }] : [];
+            })
+          : [],
         resumen: {
           reservas: reservas.length,
           pasajeros: uniquePax(reservas),
@@ -263,7 +293,36 @@ const serviceData = (body: Record<string, unknown>) => {
   if (!Object.values(Currency).includes(currency)) throw new GroupError("Moneda inválida.");
   if (!provider) throw new GroupError("Falta el mayorista del servicio.");
   if (!(netoPorPax >= 0) || !(tarifaPorPax >= 0)) throw new GroupError("Los precios por pasajero tienen que ser números.");
+
+  const modoPrecio = PRICING_MODES.includes(body.modoPrecio as never) ? String(body.modoPrecio) : "POR_PASAJERO";
+  // Children price (only per passenger)
+  const hasChildPrice = modoPrecio === "POR_PASAJERO" && body.edadMenor !== null && body.edadMenor !== undefined && body.edadMenor !== "";
+  const edadMenor = hasChildPrice ? Math.round(Number(body.edadMenor)) : null;
+  const netoMenor = hasChildPrice ? round2(Number(body.netoMenor)) : null;
+  const tarifaMenor = hasChildPrice ? round2(Number(body.tarifaMenor)) : null;
+  if (hasChildPrice && !(edadMenor! > 0 && edadMenor! < 18)) throw new GroupError("La edad de los menores tiene que estar entre 1 y 17.");
+  if (hasChildPrice && (!(netoMenor! >= 0) || !(tarifaMenor! >= 0))) throw new GroupError("Faltan los precios de los menores.");
+  // Prices per person by room type
+  let preciosHabitacion: RoomPrices | null = null;
+  if (modoPrecio === "POR_HABITACION") {
+    const input = (body.preciosHabitacion ?? {}) as Record<string, { neto?: unknown; tarifa?: unknown }>;
+    preciosHabitacion = {};
+    for (const tipo of Object.values(HabitacionTipo)) {
+      const room = input[tipo];
+      if (!room || room.tarifa === "" || room.tarifa === null || room.tarifa === undefined) continue;
+      const neto = round2(Number(room.neto) || 0);
+      const tarifa = round2(Number(room.tarifa));
+      if (!(neto >= 0) || !(tarifa >= 0)) throw new GroupError(`Revisá los precios de la habitación ${tipo.toLowerCase()}.`);
+      preciosHabitacion[tipo] = { neto, tarifa };
+    }
+    if (Object.keys(preciosHabitacion).length === 0) throw new GroupError("Cargá el precio de al menos un tipo de habitación.");
+  }
   return {
+    modoPrecio,
+    edadMenor,
+    netoMenor,
+    tarifaMenor,
+    preciosHabitacion: preciosHabitacion ? (preciosHabitacion as Prisma.InputJsonObject) : Prisma.DbNull,
     type,
     nombre: nombre || "Servicio",
     provider,
@@ -301,15 +360,18 @@ const lineFromService = (
 export const addGroupService = async (req: Request, res: Response) => {
   try {
     const data = serviceData(req.body ?? {});
-    const grupo = await prisma.grupo.findUnique({ where: { id: req.params.id }, include: { reservas: { include: { clients: { select: { id: true } } } } } });
+    const grupo = await prisma.grupo.findUnique({
+      where: { id: req.params.id },
+      include: { reservas: { include: { clients: { select: { id: true, dob: true } } } } },
+    });
     if (!grupo) return res.status(404).json({ msg: "Salida grupal no encontrada" });
     const servicio = await prisma.grupoServicio.create({ data: { ...data, grupoId: grupo.id } });
     if (req.body?.aplicarAReservas) {
       for (const r of grupo.reservas) {
-        const pax = Math.max(r.clients.length, 1);
+        const price = linePrice(servicio, r.clients, r.habitacionTipo, grupo.fechaSalida);
         await prisma.file.update({
           where: { id: r.id },
-          data: { services: { create: [lineFromService(servicio, data.netoPorPax * pax, data.tarifaPorPax * pax)] } },
+          data: { services: { create: [lineFromService(servicio, price.neto, price.tarifa)] } },
         });
       }
     }
@@ -367,8 +429,8 @@ export const deleteGroupService = async (req: Request, res: Response) => {
 
 /* ---------- Reservations ---------- */
 
-// POST /grupos/:id/reservas { nombre, paxIds, planId?, lineas?: [{ grupoServicioId, neto, tarifa }] }
-// Without lineas, every group service at its list price per passenger
+// POST /grupos/:id/reservas { nombre, paxIds, planId?, habitacionTipo?, lineas?: [{ grupoServicioId, neto, tarifa }] }
+// Without lineas, every group service priced by its mode (children, per reservation, by room)
 export const addReservation = async (req: Request, res: Response) => {
   const body = req.body ?? {};
   try {
@@ -388,14 +450,12 @@ export const addReservation = async (req: Request, res: Response) => {
     if (already) throw new GroupError(`${already.firstname} ${already.lastname} ya está en otra reserva de esta salida.`);
     const planId = body.planId ? String(body.planId) : null;
     if (planId && !grupo.planes.some((p) => p.id === planId)) throw new GroupError("El plan de pagos no es de esta salida.");
+    const habitacionTipo = Object.values(HabitacionTipo).includes(body.habitacionTipo) ? (body.habitacionTipo as HabitacionTipo) : roomTypeFor(paxIds.length);
+    const pax = await prisma.pax.findMany({ where: { id: { in: paxIds } }, select: { dob: true } });
 
     const lineas: { grupoServicioId: string; neto: number; tarifa: number }[] = Array.isArray(body.lineas)
       ? body.lineas.map((l: Record<string, unknown>) => ({ grupoServicioId: String(l.grupoServicioId), neto: Number(l.neto), tarifa: Number(l.tarifa) }))
-      : grupo.servicios.map((s) => ({
-          grupoServicioId: s.id,
-          neto: Number(s.netoPorPax) * paxIds.length,
-          tarifa: Number(s.tarifaPorPax) * paxIds.length,
-        }));
+      : grupo.servicios.map((s) => ({ grupoServicioId: s.id, ...linePrice(s, pax, habitacionTipo, grupo.fechaSalida) }));
     const services = lineas.map((l) => {
       const servicio = grupo.servicios.find((s) => s.id === l.grupoServicioId);
       if (!servicio) throw new GroupError("Uno de los servicios no es de esta salida.");
@@ -413,6 +473,7 @@ export const addReservation = async (req: Request, res: Response) => {
         grupoId: grupo.id,
         reservaNombre: nombre,
         grupoPlanId: planId,
+        habitacionTipo,
         clients: { connect: paxIds.map((id) => ({ id })) },
         services: { create: services },
       },
@@ -423,7 +484,7 @@ export const addReservation = async (req: Request, res: Response) => {
   }
 };
 
-// PUT /grupos/:id/reservas/:fileId { nombre?, planId? }
+// PUT /grupos/:id/reservas/:fileId { nombre?, planId?, habitacionTipo? }
 export const updateReservation = async (req: Request, res: Response) => {
   const body = req.body ?? {};
   try {
@@ -440,6 +501,9 @@ export const updateReservation = async (req: Request, res: Response) => {
       const planId = body.planId ? String(body.planId) : null;
       if (planId && !reserva.grupo.planes.some((p) => p.id === planId)) throw new GroupError("El plan de pagos no es de esta salida.");
       data.grupoPlan = planId ? { connect: { id: planId } } : { disconnect: true };
+    }
+    if (body.habitacionTipo !== undefined) {
+      data.habitacionTipo = Object.values(HabitacionTipo).includes(body.habitacionTipo) ? (body.habitacionTipo as HabitacionTipo) : null;
     }
     await prisma.file.update({ where: { id: reserva.id }, data });
     res.json({ msg: "Reserva actualizada" });
