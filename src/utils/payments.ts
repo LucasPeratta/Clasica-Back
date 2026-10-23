@@ -36,6 +36,8 @@ export const filePaymentsInclude = {
       recibo: { select: { numero: true } },
     },
   },
+  // Group reservations: the plan chosen among the group's
+  grupoPlan: { select: { cuotas: true } },
 } satisfies Prisma.FileInclude;
 
 export type FileWithPayments = Prisma.FileGetPayload<{ include: typeof filePaymentsInclude }>;
@@ -85,26 +87,16 @@ export const getAutomaticPlan = (file: FileWithPayments, currency: Currency, tot
 export type InstallmentStatus = "PAGADA" | "PARCIAL" | "PENDIENTE";
 export type PaymentsStatus = "SIN_PLAN" | "PAGADO" | "VENCIDO" | "POR_VENCER" | "AL_DIA";
 
+type PlanItem = { id: string | null; concepto: string; importe: number; vencimiento: Date };
+type PaymentLike = { importeAplicado: unknown };
+
 /**
- * Full payments picture of a file. Payments are applied in order: first to the earliest
- * installment, then to the next one.
+ * Payments picture of one charge (one currency): payments are applied in order, first to the
+ * earliest installment, then to the next one.
  */
-export const getPaymentsSummary = (file: FileWithPayments) => {
-  const charge = getCharge(file);
+const summarizeCharge = (plan: PlanItem[], pagos: PaymentLike[]) => {
   const today = startOfDay();
-
-  const plan = file.planPersonalizado
-    ? file.cuotas.map((c) => ({
-        id: c.id as string | null,
-        concepto: c.concepto,
-        importe: toNumber(c.importe),
-        vencimiento: c.vencimiento,
-      }))
-    : charge.currency
-      ? getAutomaticPlan(file, charge.currency, charge.total).map((c) => ({ id: null, ...c }))
-      : [];
-
-  const cobrado = round2(file.pagos.reduce((sum, p) => sum + toNumber(p.importeAplicado), 0));
+  const cobrado = round2(pagos.reduce((sum, p) => sum + toNumber(p.importeAplicado), 0));
   const planTotal = round2(plan.reduce((sum, c) => sum + c.importe, 0));
 
   let remainingPaid = cobrado;
@@ -138,10 +130,6 @@ export const getPaymentsSummary = (file: FileWithPayments) => {
   else estado = "AL_DIA";
 
   return {
-    moneda: charge.currency,
-    total: charge.total,
-    problema: charge.problem,
-    planPersonalizado: file.planPersonalizado,
     // The custom plan may not add up to the total (e.g. after changing the tariff)
     planTotal,
     cuotas,
@@ -153,6 +141,100 @@ export const getPaymentsSummary = (file: FileWithPayments) => {
       ? { concepto: proxima.concepto, falta: proxima.falta, vencimiento: proxima.vencimiento, diasParaVencer: proxima.diasParaVencer }
       : null,
     estado,
+  };
+};
+
+// Worst status first: what the lists show for a reservation with several currencies
+const STATUS_PRIORITY: PaymentsStatus[] = ["VENCIDO", "POR_VENCER", "AL_DIA", "PAGADO", "SIN_PLAN"];
+
+// Order to pick the main currency of a reservation
+const CURRENCY_ORDER: Currency[] = ["USD", "EURO", "PESOS"];
+
+export interface GroupPlanInstallment {
+  concepto: string;
+  // % of the reservation's total in each currency; null = the balance (whatever is left)
+  porcentaje: number | null;
+  vencimiento: string;
+}
+
+// Installments of a group plan for one currency's total
+export const applyGroupPlan = (installments: GroupPlanInstallment[], total: number): PlanItem[] => {
+  let assigned = 0;
+  return installments.map((c, i) => {
+    const isBalance = c.porcentaje === null || i === installments.length - 1;
+    const importe = isBalance ? round2(total - assigned) : round2((total * toNumber(c.porcentaje)) / 100);
+    assigned = round2(assigned + importe);
+    return { id: null, concepto: c.concepto, importe: Math.max(importe, 0), vencimiento: new Date(c.vencimiento) };
+  });
+};
+
+/**
+ * Group reservation: each currency is charged apart (e.g. the package in dollars and a transfer
+ * in Buenos Aires in pesos). The plan of each currency is the one loaded by hand for it, else
+ * the group plan chosen, else the automatic one.
+ */
+const getReservationSummary = (file: FileWithPayments) => {
+  const totals = new Map<Currency, number>();
+  for (const s of file.services) totals.set(s.currency, round2((totals.get(s.currency) ?? 0) + toNumber(s.tarifa)));
+  const currencies = CURRENCY_ORDER.filter((c) => (totals.get(c) ?? 0) > 0);
+  if (currencies.length === 0) {
+    return { ...summarizeCharge([], []), moneda: null, total: 0, problema: "NOTHING_TO_CHARGE" as ChargeProblem, planPersonalizado: false, porMoneda: [] };
+  }
+  const groupPlan = (file.grupoPlan?.cuotas ?? null) as GroupPlanInstallment[] | null;
+
+  const porMoneda = currencies.map((moneda) => {
+    const total = totals.get(moneda)!;
+    const custom = file.cuotas.filter((c) => c.moneda === moneda);
+    const plan: PlanItem[] =
+      custom.length > 0
+        ? custom.map((c) => ({ id: c.id, concepto: c.concepto, importe: toNumber(c.importe), vencimiento: c.vencimiento }))
+        : groupPlan && groupPlan.length > 0
+          ? applyGroupPlan(groupPlan, total)
+          : getAutomaticPlan(file, moneda, total).map((c) => ({ id: null, ...c }));
+    const pagos = file.pagos.filter((p) => (p.monedaAplicada ?? currencies[0]) === moneda);
+    return { moneda, total, planPersonalizado: custom.length > 0, ...summarizeCharge(plan, pagos) };
+  });
+
+  const main = porMoneda[0];
+  const nextDue = porMoneda
+    .filter((p) => p.proximoVencimiento)
+    .sort((a, b) => a.proximoVencimiento!.vencimiento.getTime() - b.proximoVencimiento!.vencimiento.getTime())[0];
+  return {
+    ...main,
+    problema: null,
+    // The earliest due date of any currency (with its currency)
+    proximoVencimiento: nextDue ? { ...nextDue.proximoVencimiento!, moneda: nextDue.moneda } : null,
+    estado: STATUS_PRIORITY.find((status) => porMoneda.some((p) => p.estado === status)) ?? main.estado,
+    porMoneda,
+  };
+};
+
+/**
+ * Full payments picture of a file. porMoneda has one entry per charged currency (more than one
+ * only in group reservations); the top-level fields are the main currency's.
+ */
+export const getPaymentsSummary = (file: FileWithPayments) => {
+  if (file.grupoId) return getReservationSummary(file);
+
+  const charge = getCharge(file);
+  const plan: PlanItem[] = file.planPersonalizado
+    ? file.cuotas.map((c) => ({
+        id: c.id as string | null,
+        concepto: c.concepto,
+        importe: toNumber(c.importe),
+        vencimiento: c.vencimiento,
+      }))
+    : charge.currency
+      ? getAutomaticPlan(file, charge.currency, charge.total).map((c) => ({ id: null, ...c }))
+      : [];
+  const summary = summarizeCharge(plan, file.pagos);
+  const part = { moneda: charge.currency, total: charge.total, planPersonalizado: file.planPersonalizado, ...summary };
+
+  return {
+    ...part,
+    problema: charge.problem,
+    proximoVencimiento: summary.proximoVencimiento ? { ...summary.proximoVencimiento, moneda: charge.currency } : null,
+    porMoneda: charge.currency ? [part] : [],
   };
 };
 

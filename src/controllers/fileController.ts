@@ -40,7 +40,6 @@ const alternativeTariffData = (formData: Record<string, unknown>) => {
 // A file stays among the "current" ones until this many days after its departure date
 const ACTIVE_DAYS = 30;
 
-// Services only with what the list needs to show totals per currency
 // Services with what the list needs (totals per currency, liquidation, payments plan), plus
 // the plan and payments to show each file's payment status
 const fileListInclude = {
@@ -51,6 +50,7 @@ const fileListInclude = {
   },
   cuotas: filePaymentsInclude.cuotas,
   pagos: filePaymentsInclude.pagos,
+  grupoPlan: filePaymentsInclude.grupoPlan,
 } satisfies Prisma.FileInclude;
 
 export const getAllFile = async (req: Request, res: Response) => {
@@ -67,7 +67,9 @@ export const getAllFile = async (req: Request, res: Response) => {
     // Every search term must match the file number, the destination, the reference or a
     // pax name. A number ("55" or "55-2026") matches that exact file number, so "55"
     // doesn't also bring 155 or 255.
+    // Group reservations are managed from their group (Grupales), not listed here
     const where: Prisma.FileWhereInput = {
+      grupoId: null,
       AND: terms.map((term): Prisma.FileWhereInput => {
         const numberConditions = fileNumberConditions(term);
         if (numberConditions.length > 0) {

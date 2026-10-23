@@ -67,7 +67,7 @@ export const listFilesToInvoice = async () => {
   // Checked quickly first, then calculated in detail
   const balances = await getFileBalances({ facturadoAt: null });
   const files = await prisma.file.findMany({
-    where: { id: { in: balances.filter((f) => f.chargeable && f.paid >= f.target - 0.009).map((f) => f.id) } },
+    where: { id: { in: balances.filter((f) => f.multiCurrency || (f.chargeable && f.paid >= f.target - 0.009)).map((f) => f.id) } },
     include: { ...filePaymentsInclude, clients: { select: { firstname: true, lastname: true }, take: 1 } },
   });
   return files

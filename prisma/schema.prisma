@@ -17,25 +17,27 @@ model User {
 }
 
 model Pax {
-  id          String     @id @default(cuid())
-  firstname   String
-  lastname    String
-  dni         String?
-  dniVto      DateTime?
-  passport    String?
-  passportVto DateTime?
-  dob         DateTime?
-  adress      String?
-  email       String?    @unique
-  phoneNumber String?
-  obs         String?    @db.VarChar(300)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @default(now()) @updatedAt
-  File        File[]     @relation("FilePax")
-  photos      PaxPhoto[]
-  pdfs        PaxPdf[]
+  id           String            @id @default(cuid())
+  firstname    String
+  lastname     String
+  dni          String?
+  dniVto       DateTime?
+  passport     String?
+  passportVto  DateTime?
+  dob          DateTime?
+  adress       String?
+  email        String?           @unique
+  phoneNumber  String?
+  obs          String?           @db.VarChar(300)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @default(now()) @updatedAt
+  File         File[]            @relation("FilePax")
+  photos       PaxPhoto[]
+  pdfs         PaxPdf[]
   // Payments this pax made (shown as payer on receipts)
-  pagosHechos FilePago[]
+  pagosHechos  FilePago[]
+  // Rooms of group departures this pax sleeps in
+  habitaciones GrupoHabitacion[] @relation("HabitacionPax")
 }
 
 model File {
@@ -69,20 +71,29 @@ model File {
   facturaNumero           String?     @db.VarChar(50)
   facturaImporte          Decimal?    @db.Decimal(14, 2)
   facturaMoneda           Currency?
+  // Reservation of a group departure (no file number; destino = "<group> · <reservation>")
+  grupoId                 String?
+  grupo                   Grupo?      @relation(fields: [grupoId], references: [id])
+  reservaNombre           String?
+  grupoPlanId             String?
+  grupoPlan               GrupoPlan?  @relation(fields: [grupoPlanId], references: [id], onDelete: SetNull)
 
   @@unique([anio, numero])
+  @@index([grupoId])
 }
 
 // Installment of a file's payment plan, in the file's charge currency
 model FileCuota {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   fileId      String
-  file        File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  file        File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
   concepto    String
-  importe     Decimal  @db.Decimal(14, 2)
+  importe     Decimal   @db.Decimal(14, 2)
   vencimiento DateTime
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
+  // Group reservations charge each currency apart: which part this installment belongs to
+  moneda      Currency?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
 
   @@index([fileId])
 }
@@ -98,6 +109,8 @@ model FilePago {
   moneda          Currency
   tipoCambio      Decimal?      @db.Decimal(14, 4)
   importeAplicado Decimal       @db.Decimal(14, 2)
+  // Group reservations: which currency part it pays (importeAplicado is in that currency)
+  monedaAplicada  Currency?
   medio           PaymentMethod
   nota            String?       @db.VarChar(300)
   // Who paid (one of the file's pax); goes on the receipt
@@ -148,6 +161,9 @@ model Service {
   File             File[]                  @relation("FileService")
   // Parts of payments to the wholesaler that cover this service (its net price)
   pagosMayorista   PagoMayoristaServicio[]
+  // Line of a group reservation: the group service it comes from
+  grupoServicioId  String?
+  grupoServicio    GrupoServicio?          @relation(fields: [grupoServicioId], references: [id], onDelete: SetNull)
 }
 
 // Photo or document attached to a service (private file in Cloudinary)
@@ -248,4 +264,94 @@ model FilePdf {
   updatedAt    DateTime @default(now()) @updatedAt
 
   @@index([fileId])
+}
+
+// Group departure: a trip sold per person. Each reservation (family, couple...) is a File
+model Grupo {
+  id           String            @id @default(cuid())
+  titulo       String
+  destino      String
+  fechaSalida  DateTime
+  fechaRegreso DateTime?
+  // Seats; null = no limit
+  cupo         Int?
+  obs          String?           @db.VarChar(500)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @default(now()) @updatedAt
+  servicios    GrupoServicio[]
+  planes       GrupoPlan[]
+  reservas     File[]
+  habitaciones GrupoHabitacion[]
+  pdfs         GrupoPdf[]
+}
+
+// Service of the group itinerary with its list price per passenger (each reservation copies it
+// and can change the price, e.g. presale)
+model GrupoServicio {
+  id               String      @id @default(cuid())
+  grupoId          String
+  grupo            Grupo       @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  type             ServiceType @default(AEREO)
+  nombre           String
+  provider         String
+  currency         Currency
+  netoPorPax       Decimal     @db.Decimal(14, 2)
+  tarifaPorPax     Decimal     @db.Decimal(14, 2)
+  fechaInicio      DateTime?
+  fechaFin         DateTime?
+  fechaLiquidacion DateTime?
+  createdAt        DateTime    @default(now())
+  servicios        Service[]
+
+  @@index([grupoId])
+}
+
+// Payment plan of a group (e.g. "Preventa"): installments as % of each reservation's total
+// (in each currency) with a due date; the last one with porcentaje null is the balance
+model GrupoPlan {
+  id        String   @id @default(cuid())
+  grupoId   String
+  grupo     Grupo    @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  nombre    String
+  // [{ concepto, porcentaje (null = saldo), vencimiento }]
+  cuotas    Json
+  createdAt DateTime @default(now())
+  reservas  File[]
+
+  @@index([grupoId])
+}
+
+enum HabitacionTipo {
+  SINGLE
+  DOBLE
+  TRIPLE
+  CUADRUPLE
+}
+
+// Rooming: a room of the group and who sleeps in it
+model GrupoHabitacion {
+  id        String         @id @default(cuid())
+  grupoId   String
+  grupo     Grupo          @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  tipo      HabitacionTipo
+  obs       String?        @db.VarChar(200)
+  pasajeros Pax[]          @relation("HabitacionPax")
+  createdAt DateTime       @default(now())
+
+  @@index([grupoId])
+}
+
+model GrupoPdf {
+  id           String   @id @default(cuid())
+  url          String
+  filename     String
+  originalName String?
+  mimetype     String?
+  size         Int?
+  grupoId      String
+  grupo        Grupo    @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@index([grupoId])
 }

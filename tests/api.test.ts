@@ -804,6 +804,183 @@ test("se guarda lo que tiene plata (AFIP)", async (t) => {
   });
 });
 
+test("salidas grupales", async (t) => {
+  const newGroup = async (data: Record<string, unknown> = {}) => {
+    const res = await post("/grupos", { titulo: "Europa Septiembre", destino: "Europa", fechaSalida: daysFromToday(90), cupo: 10, ...data });
+    assert.equal(res.status, 200);
+    return res.body.id as string;
+  };
+  const addService = (grupoId: string, data: Record<string, unknown>) =>
+    post(`/grupos/${grupoId}/servicios`, { type: "HOTEL", nombre: "Paquete", provider: "Mayorista Grupo", currency: "USD", netoPorPax: 1000, tarifaPorPax: 1300, ...data });
+  const newPax = (lastname: string) =>
+    prisma.pax.create({ data: { firstname: "Pax", lastname, dni: String(Math.floor(Math.random() * 1e8)), dob: new Date("1980-05-10T12:00:00") } });
+  const detail = async (grupoId: string) => (await request(`/grupos/${grupoId}`)).body.data;
+
+  await t.test("se crea una salida con nombre, destino, fecha y cupo", async () => {
+    assert.equal((await post("/grupos", { destino: "X", fechaSalida: daysFromToday(10) })).status, 400);
+    assert.equal((await post("/grupos", { titulo: "X", destino: "X", fechaSalida: daysFromToday(10), cupo: -2 })).status, 400);
+    const id = await newGroup({ titulo: "Grupo Lista" });
+    const list = await request("/grupos?page=1&search=Grupo%20Lista&status=current");
+    assert.equal(list.body.data[0].id, id);
+    assert.equal(list.body.data[0].pasajeros, 0);
+    assert.equal(list.body.counts.current, 1);
+  });
+
+  await t.test("reservas con su precio por pasajero, en dólares y en pesos", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Reservas" });
+    assert.equal((await addService(grupoId, { provider: "" })).status, 400);
+    await addService(grupoId, {});
+    await addService(grupoId, { type: "TRASLADO", nombre: "Traslado aeropuerto", provider: "Remises BA", currency: "PESOS", netoPorPax: 20000, tarifaPorPax: 30000 });
+    const [a, b, c] = await Promise.all([newPax("Montero"), newPax("Montero"), newPax("Solo")]);
+
+    // Precio de lista x 2 pasajeros
+    const res = await post(`/grupos/${grupoId}/reservas`, { nombre: "Montero x2", paxIds: [a.id, b.id] });
+    assert.equal(res.status, 200);
+    const file = await prisma.file.findUniqueOrThrow({ where: { id: res.body.id }, include: { services: true } });
+    assert.equal(file.destino, "Grupo Reservas · Montero x2");
+    assert.equal(file.numero, null);
+    assert.deepEqual(file.services.map((s) => [s.currency, Number(s.tarifa)]).sort(), [["PESOS", 60000], ["USD", 2600]]);
+
+    // No puede estar en dos reservas
+    assert.equal((await post(`/grupos/${grupoId}/reservas`, { nombre: "Otra", paxIds: [b.id] })).status, 400);
+
+    // Preventa: precio distinto
+    const servicios = (await detail(grupoId)).servicios;
+    const usd = servicios.find((s: { currency: string }) => s.currency === "USD");
+    await post(`/grupos/${grupoId}/reservas`, { nombre: "Solo x1", paxIds: [c.id], lineas: [{ grupoServicioId: usd.id, neto: 900, tarifa: 1100 }] });
+
+    const g = await detail(grupoId);
+    assert.equal(g.resumen.pasajeros, 3);
+    assert.equal(g.resumen.lugaresLibres, 7);
+    const usdMoney = g.resumen.dinero.find((d: { moneda: string }) => d.moneda === "USD");
+    assert.deepEqual([usdMoney.total, usdMoney.neto, usdMoney.ganancia], [3700, 2900, 800]);
+    assert.equal(g.reservas.length, 2);
+    assert.equal(g.reservas[0].porMoneda.length, 2);
+
+    // Las reservas no aparecen en la lista de files
+    const files = await request("/file?page=1&search=Grupo%20Reservas&status=current");
+    assert.equal(files.body.total, 0);
+
+    // Un servicio nuevo se puede sumar a las reservas que ya existen
+    await addService(grupoId, { type: "EXCURSION", nombre: "City tour", netoPorPax: 50, tarifaPorPax: 80, aplicarAReservas: true });
+    const updated = await prisma.file.findUniqueOrThrow({ where: { id: res.body.id }, include: { services: true } });
+    assert.ok(updated.services.some((s) => s.nombre === "City tour" && Number(s.tarifa) === 160));
+
+    // Un servicio que tienen las reservas no se puede borrar del grupo
+    assert.equal((await request(`/grupos/${grupoId}/servicios/${usd.id}`, { method: "DELETE" })).status, 400);
+  });
+
+  await t.test("cobros por moneda: cada parte en su moneda, o en otra con tipo de cambio", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Cobros" });
+    await addService(grupoId, { type: "HOTEL" });
+    await addService(grupoId, { type: "TRASLADO", nombre: "Traslado", provider: "Remises BA", currency: "PESOS", netoPorPax: 20000, tarifaPorPax: 30000 });
+    const pax = await newPax("Cobros");
+    const fileId = (await post(`/grupos/${grupoId}/reservas`, { nombre: "Cobros x1", paxIds: [pax.id] })).body.id;
+
+    let { body } = await request(`/file/${fileId}/pagos`);
+    assert.deepEqual(body.porMoneda.map((p: { moneda: string; total: number }) => [p.moneda, p.total]), [["USD", 1300], ["PESOS", 30000]]);
+
+    const pay = (data: Record<string, unknown>) => post(`/file/${fileId}/pagos`, { fecha: daysFromToday(0), medio: "EFECTIVO", ...data });
+    // Paga dólares en dólares, y parte de los dólares con pesos (tipo de cambio 1000)
+    await pay({ moneda: "USD", importe: 300, monedaAplicada: "USD" });
+    await pay({ moneda: "PESOS", importe: 500000, tipoCambio: 1000, monedaAplicada: "USD" });
+    // Y el traslado en pesos
+    ({ body } = await pay({ moneda: "PESOS", importe: 30000, monedaAplicada: "PESOS" }));
+    const usd = body.porMoneda.find((p: { moneda: string }) => p.moneda === "USD");
+    const pesos = body.porMoneda.find((p: { moneda: string }) => p.moneda === "PESOS");
+    assert.deepEqual([usd.cobrado, usd.falta], [800, 500]);
+    assert.deepEqual([pesos.cobrado, pesos.falta, pesos.estado], [30000, 0, "PAGADO"]);
+
+    // En cobranzas aparece con lo que falta de cada moneda
+    const owing = await request("/cobranzas?search=Grupo%20Cobros");
+    const row = owing.body.data.find((f: { id: string }) => f.id === fileId);
+    assert.deepEqual(row.porMoneda.map((p: { moneda: string; falta: number }) => [p.moneda, p.falta]), [["USD", 500], ["PESOS", 0]]);
+  });
+
+  await t.test("planes de pago del grupo: porcentajes con fecha y el saldo", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Planes" });
+    await addService(grupoId, { type: "HOTEL", tarifaPorPax: 1000 });
+    await addService(grupoId, { type: "TRASLADO", nombre: "Traslado", provider: "Remises BA", currency: "PESOS", netoPorPax: 10000, tarifaPorPax: 20000 });
+
+    const bad = await post(`/grupos/${grupoId}/planes`, {
+      nombre: "Malo",
+      cuotas: [{ porcentaje: 60, vencimiento: daysFromToday(5) }, { porcentaje: 50, vencimiento: daysFromToday(10) }, { vencimiento: daysFromToday(20) }],
+    });
+    assert.equal(bad.status, 400);
+    const plan = await post(`/grupos/${grupoId}/planes`, {
+      nombre: "Preventa",
+      cuotas: [
+        { concepto: "Seña", porcentaje: 30, vencimiento: daysFromToday(-1) },
+        { concepto: "Cuota", porcentaje: 30, vencimiento: daysFromToday(30) },
+        { concepto: "Saldo", porcentaje: null, vencimiento: daysFromToday(60) },
+      ],
+    });
+    assert.equal(plan.status, 200);
+
+    const pax = await newPax("Planes");
+    const fileId = (await post(`/grupos/${grupoId}/reservas`, { nombre: "Planes x1", paxIds: [pax.id], planId: plan.body.id })).body.id;
+    let { body } = await request(`/file/${fileId}/pagos`);
+    const usd = body.porMoneda.find((p: { moneda: string }) => p.moneda === "USD");
+    assert.deepEqual(usd.cuotas.map((c: { importe: number }) => c.importe), [300, 300, 400]);
+    const pesos = body.porMoneda.find((p: { moneda: string }) => p.moneda === "PESOS");
+    assert.deepEqual(pesos.cuotas.map((c: { importe: number }) => c.importe), [6000, 6000, 8000]);
+    // La seña venció ayer
+    assert.equal(body.estado, "VENCIDO");
+
+    // Plan propio solo para los pesos: los dólares siguen con el plan del grupo
+    await put(`/file/${fileId}/plan`, { moneda: "PESOS", cuotas: [{ concepto: "Todo", importe: 20000, vencimiento: daysFromToday(15) }] });
+    ({ body } = await request(`/file/${fileId}/pagos`));
+    assert.deepEqual(body.porMoneda.find((p: { moneda: string }) => p.moneda === "PESOS").cuotas.map((c: { importe: number }) => c.importe), [20000]);
+    assert.deepEqual(body.porMoneda.find((p: { moneda: string }) => p.moneda === "USD").cuotas.map((c: { importe: number }) => c.importe), [300, 300, 400]);
+  });
+
+  await t.test("rooming: habitaciones con la cantidad justa de pasajeros del grupo", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Rooming" });
+    await addService(grupoId, {});
+    const [a, b, c] = await Promise.all([newPax("RoomA"), newPax("RoomB"), newPax("RoomC")]);
+    const outsider = await newPax("Afuera");
+    await post(`/grupos/${grupoId}/reservas`, { nombre: "Familia x3", paxIds: [a.id, b.id, c.id] });
+
+    assert.equal((await post(`/grupos/${grupoId}/habitaciones`, { tipo: "DOBLE", paxIds: [a.id] })).status, 400);
+    assert.equal((await post(`/grupos/${grupoId}/habitaciones`, { tipo: "DOBLE", paxIds: [a.id, outsider.id] })).status, 400);
+    assert.equal((await post(`/grupos/${grupoId}/habitaciones`, { tipo: "DOBLE", paxIds: [a.id, b.id] })).status, 200);
+    // Nadie en dos habitaciones
+    assert.equal((await post(`/grupos/${grupoId}/habitaciones`, { tipo: "SINGLE", paxIds: [b.id] })).status, 400);
+
+    const g = await detail(grupoId);
+    assert.equal(g.habitaciones.length, 1);
+    assert.equal(g.habitaciones[0].pasajeros[0].dob.slice(0, 4), "1980");
+    assert.deepEqual(g.sinHabitacion.map((p: { id: string }) => p.id), [c.id]);
+  });
+
+  await t.test("cambiar el nombre del grupo cambia sus reservas; borrar solo si está vacío", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Viejo" });
+    await addService(grupoId, {});
+    const pax = await newPax("Renombre");
+    const fileId = (await post(`/grupos/${grupoId}/reservas`, { nombre: "Renombre x1", paxIds: [pax.id] })).body.id;
+    await put(`/grupos/${grupoId}`, { titulo: "Grupo Nuevo", destino: "Europa", fechaSalida: daysFromToday(120), cupo: 10 });
+    const file = await prisma.file.findUniqueOrThrow({ where: { id: fileId } });
+    assert.equal(file.destino, "Grupo Nuevo · Renombre x1");
+
+    assert.equal((await request(`/grupos/${grupoId}`, { method: "DELETE" })).status, 400);
+    await request(`/file/${fileId}`, { method: "DELETE" });
+    assert.equal((await request(`/grupos/${grupoId}`, { method: "DELETE" })).status, 200);
+  });
+
+  await t.test("en el inicio, una salida grupal próxima es una sola línea", async () => {
+    const grupoId = await newGroup({ titulo: "Grupo Inicio", fechaSalida: daysFromToday(5) });
+    await addService(grupoId, {});
+    const [a, b] = await Promise.all([newPax("InicioA"), newPax("InicioB")]);
+    await post(`/grupos/${grupoId}/reservas`, { nombre: "A x1", paxIds: [a.id] });
+    await post(`/grupos/${grupoId}/reservas`, { nombre: "B x1", paxIds: [b.id] });
+    const { body } = await request("/inicio");
+    const lines = body.proximasSalidas.filter((s: { destino: string }) => s.destino.includes("Grupo Inicio"));
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].grupoId, grupoId);
+    assert.equal(lines[0].pasajeros, 2);
+  });
+});
+
 test("inicio", async (t) => {
   await t.test("junta salidas, cobros, mayoristas, servicios sin liquidar y documentos", async () => {
     const pax = await prisma.pax.create({

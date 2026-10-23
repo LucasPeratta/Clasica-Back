@@ -89,10 +89,12 @@ export const savePlan = async (req: Request, res: Response) => {
     if (!(await prisma.file.findUnique({ where: { id: fileId } }))) {
       return res.status(404).json({ msg: "File no encontrado" });
     }
+    // Group reservations: the plan of one currency (the others are kept)
+    const moneda = Object.values(Currency).includes(req.body?.moneda) ? (req.body.moneda as Currency) : null;
     await prisma.$transaction([
-      prisma.fileCuota.deleteMany({ where: { fileId } }),
+      prisma.fileCuota.deleteMany({ where: { fileId, ...(moneda && { moneda }) } }),
       prisma.fileCuota.createMany({
-        data: parsed.map((c: { concepto: string; importe: number; vencimiento: Date }) => ({ ...c, fileId })),
+        data: parsed.map((c: { concepto: string; importe: number; vencimiento: Date }) => ({ ...c, fileId, moneda })),
       }),
       prisma.file.update({ where: { id: fileId }, data: { planPersonalizado: true } }),
     ]);
@@ -107,8 +109,10 @@ export const savePlan = async (req: Request, res: Response) => {
 export const resetPlan = async (req: Request, res: Response) => {
   const fileId = req.params.id;
   try {
+    // Group reservations: ?moneda= resets only that currency's plan
+    const moneda = Object.values(Currency).includes(req.query.moneda as Currency) ? (req.query.moneda as Currency) : null;
     await prisma.$transaction([
-      prisma.fileCuota.deleteMany({ where: { fileId } }),
+      prisma.fileCuota.deleteMany({ where: { fileId, ...(moneda && { moneda }) } }),
       prisma.file.update({ where: { id: fileId }, data: { planPersonalizado: false } }),
     ]);
     res.json(summaryResponse((await loadFile(fileId))!));
@@ -120,7 +124,11 @@ export const resetPlan = async (req: Request, res: Response) => {
 
 // Validates a payment and calculates how much it covers in the file's currency
 const buildPayment = (file: FileWithPayments, body: Record<string, unknown>) => {
-  const charge = getCharge(file);
+  // Group reservations: the payment goes to one of its currencies (monedaAplicada)
+  const parts = file.grupoId ? getPaymentsSummary(file).porMoneda : null;
+  const charge = parts
+    ? { currency: parts.find((p) => p.moneda === body.monedaAplicada)?.moneda ?? parts[0]?.moneda ?? null, problem: "NOTHING_TO_CHARGE" as const }
+    : getCharge(file);
   if (!charge.currency) {
     throw new PaymentError(CHARGE_PROBLEM_MESSAGES[charge.problem!]);
   }
@@ -147,6 +155,7 @@ const buildPayment = (file: FileWithPayments, body: Record<string, unknown>) => 
     tipoCambio: sameCurrency ? null : tipoCambio,
     importeAplicado: getAppliedAmount(importe, moneda, charge.currency, tipoCambio),
     nota: String(body.nota ?? "").trim().slice(0, 300) || null,
+    monedaAplicada: parts ? charge.currency : null,
   };
 };
 
@@ -335,7 +344,7 @@ export const getClientPaymentsHistory = async (req: Request, res: Response) => {
 // Also used by the home page
 export const listOwingFiles = async (terms: string[] = []) => {
   // Only files that may owe something get the full calculation (old paid trips are skipped)
-  const candidates = (await getFileBalances()).filter((f) => f.chargeable && f.target - f.paid > 0.009);
+  const candidates = (await getFileBalances()).filter((f) => f.multiCurrency || (f.chargeable && f.target - f.paid > 0.009));
   const files = await prisma.file.findMany({
     where: { id: { in: candidates.map((f) => f.id) } },
     include: {
@@ -346,7 +355,7 @@ export const listOwingFiles = async (terms: string[] = []) => {
 
   return files
     .map((file) => ({ file, summary: getPaymentsSummary(file) }))
-    .filter(({ summary }) => summary.falta > 0 && summary.proximoVencimiento)
+    .filter(({ summary }) => summary.porMoneda.some((p) => p.falta > 0 && p.proximoVencimiento))
     .filter(({ file }) =>
       terms.every((term) => {
         const t = term.toLowerCase();
@@ -380,6 +389,8 @@ export const owingFileToJson = ({ file, summary }: OwingFile) => ({
   total: summary.total,
   cobrado: summary.cobrado,
   falta: summary.falta,
+  // Group reservations: what is charged in each currency
+  porMoneda: summary.porMoneda.map((p) => ({ moneda: p.moneda, total: p.total, cobrado: p.cobrado, falta: p.falta })),
   estado: summary.estado,
   proximoVencimiento: summary.proximoVencimiento,
 });

@@ -12,6 +12,7 @@ export const getFileBalances = async (where: Prisma.FileWhereInput = {}) => {
       where,
       select: {
         id: true,
+        grupoId: true,
         tarifaAlternativa: true,
         tarifaAlternativaMoneda: true,
         planPersonalizado: true,
@@ -29,6 +30,8 @@ export const getFileBalances = async (where: Prisma.FileWhereInput = {}) => {
     const planTotal = file.planPersonalizado ? file.cuotas.reduce((sum, c) => sum + Number(c.importe), 0) : 0;
     return {
       id: file.id,
+      // Group reservations charge each currency apart: they always get the full calculation
+      multiCurrency: !!file.grupoId,
       chargeable: charge.currency !== null,
       target: Math.max(charge.total, planTotal),
       paid: paidByFile.get(file.id) ?? 0,

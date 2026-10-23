@@ -33,9 +33,10 @@ export const getHome = async (req: Request, res: Response) => {
   const today = startOfDay();
 
   try {
-    const [departures, owing, supplierPending, unsettled, expiringPax, tripsForDocuments, toInvoice] = await Promise.all([
+    const [departures, owing, supplierPending, unsettled, expiringPax, tripsForDocuments, toInvoice, groupDepartures] = await Promise.all([
       prisma.file.findMany({
-        where: { fechaSalida: { gte: today, lt: addDays(today, UPCOMING_DEPARTURES_DAYS + 1) } },
+        // Group reservations are shown as their group (below)
+        where: { grupoId: null, fechaSalida: { gte: today, lt: addDays(today, UPCOMING_DEPARTURES_DAYS + 1) } },
         select: {
           ...fileRef,
           clients: { select: { firstname: true, lastname: true } },
@@ -74,6 +75,15 @@ export const getHome = async (req: Request, res: Response) => {
         },
       }),
       listFilesToInvoice(),
+      prisma.grupo.findMany({
+        where: { fechaSalida: { gte: today, lt: addDays(today, UPCOMING_DEPARTURES_DAYS + 1) } },
+        select: {
+          id: true,
+          titulo: true,
+          fechaSalida: true,
+          reservas: { select: { clients: { select: { id: true } }, services: { where: { deleted_at: null, type: { not: "AEREO" } }, select: { liquidado: true } } } },
+        },
+      }),
     ]);
 
     // Client collections: overdue or due within a week
@@ -176,13 +186,29 @@ export const getHome = async (req: Request, res: Response) => {
       .sort((a, b) => a.diasParaLiquidar - b.diasParaLiquidar);
 
     res.json({
-      proximasSalidas: departures.map(({ clients, services, ...file }) => ({
-        ...file,
-        diasParaSalida: daysUntil(file.fechaSalida, today),
-        pasajeros: clients.length,
-        primerPasajero: clients[0] ?? null,
-        sinLiquidar: services.filter((s) => !s.liquidado).length,
-      })),
+      proximasSalidas: [
+        ...departures.map(({ clients, services, ...file }) => ({
+          ...file,
+          grupoId: null as string | null,
+          diasParaSalida: daysUntil(file.fechaSalida, today),
+          pasajeros: clients.length,
+          primerPasajero: (clients[0] ?? null) as { firstname: string; lastname: string } | null,
+          sinLiquidar: services.filter((s) => !s.liquidado).length,
+        })),
+        // Group departures: one line per group
+        ...groupDepartures.map((g) => ({
+          id: g.id,
+          grupoId: g.id as string | null,
+          numero: null,
+          anio: null,
+          destino: `Grupal: ${g.titulo}`,
+          fechaSalida: g.fechaSalida,
+          diasParaSalida: daysUntil(g.fechaSalida, today),
+          pasajeros: new Set(g.reservas.flatMap((r) => r.clients.map((c) => c.id))).size,
+          primerPasajero: null,
+          sinLiquidar: g.reservas.flatMap((r) => r.services).filter((s) => !s.liquidado).length,
+        })),
+      ].sort((a, b) => a.fechaSalida.getTime() - b.fechaSalida.getTime()),
       cobros: {
         vencidos: owing.filter((o) => o.summary.estado === "VENCIDO").length,
         semana: owing.filter((o) => {
