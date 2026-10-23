@@ -191,6 +191,26 @@ test("pasajeros", async (t) => {
     assert.equal(body.data.length, 1);
     assert.equal(body.data[0].destino, "Roma");
   });
+
+  await t.test("historial de viajes: con quién viajó, cuánto costó, si pagó y si está facturado", async () => {
+    const pax = await prisma.pax.create({ data: { firstname: "Viajero", lastname: "Frecuente" } });
+    const friend = await prisma.pax.create({ data: { firstname: "Amiga", lastname: "Compañera" } });
+    const flight = await createService({ type: "AEREO", tarifa: "700" });
+    const old = await createFile({ destino: "Viaje viejo", fechaSalida: daysFromToday(-300) }, [flight], [pax.id, friend.id]);
+    await post(`/file/${old.id}/pagos`, { fecha: daysFromToday(-330), medio: "EFECTIVO", moneda: "USD", importe: 700 });
+    await put(`/file/${old.id}/facturacion`, { fecha: daysFromToday(-320), importe: 700, moneda: "USD" });
+    await createFile({ destino: "Viaje nuevo", fechaSalida: daysFromToday(60) }, [], [pax.id]);
+
+    const { body } = await request(`/pax/${pax.id}/files`);
+    // Del más nuevo al más viejo
+    assert.deepEqual(body.data.map((f: { destino: string }) => f.destino), ["Viaje nuevo", "Viaje viejo"]);
+    const trip = body.data[1];
+    assert.deepEqual(trip.acompanantes.map((c: { firstname: string }) => c.firstname), ["Amiga"]);
+    assert.equal(trip.total, 700);
+    assert.equal(trip.estado, "PAGADO");
+    assert.equal(trip.facturado, true);
+    assert.equal(trip.servicios, 1);
+  });
 });
 
 test("files", async (t) => {
@@ -721,6 +741,10 @@ test("facturación y balance", async (t) => {
     const row = body.porFacturar.find((f: { id: string }) => f.id === file.id);
     assert.equal(row.total, 900);
     assert.equal(row.moneda, "USD");
+    // También aparece en el inicio
+    const home = await request("/inicio");
+    assert.ok(home.body.facturar.total >= 1);
+    assert.ok(home.body.facturar.items.length <= 8);
 
     await put(`/file/${file.id}/facturacion`, { fecha: daysFromToday(0), importe: 900, moneda: "USD" });
     ({ body } = await request("/balance"));

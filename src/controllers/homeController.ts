@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { listOwingFiles, owingFileToJson } from "./paymentsController";
 import { listPendingSupplierServices } from "./supplierPaymentsController";
 import { liquidationDate } from "../utils/liquidation";
+import { listFilesToInvoice } from "./balanceController";
 
 // Home page: what needs attention today, in one request
 
@@ -32,7 +33,7 @@ export const getHome = async (req: Request, res: Response) => {
   const today = startOfDay();
 
   try {
-    const [departures, owing, supplierPending, unsettled, expiringPax, tripsForDocuments] = await Promise.all([
+    const [departures, owing, supplierPending, unsettled, expiringPax, tripsForDocuments, toInvoice] = await Promise.all([
       prisma.file.findMany({
         where: { fechaSalida: { gte: today, lt: addDays(today, UPCOMING_DEPARTURES_DAYS + 1) } },
         select: {
@@ -72,6 +73,7 @@ export const getHome = async (req: Request, res: Response) => {
           clients: { select: { id: true, firstname: true, lastname: true, dniVto: true, passportVto: true } },
         },
       }),
+      listFilesToInvoice(),
     ]);
 
     // Client collections: overdue or due within a week
@@ -198,6 +200,8 @@ export const getHome = async (req: Request, res: Response) => {
       },
       sinLiquidar: { total: unsettledSorted.length, items: unsettledSorted.slice(0, MAX_UNSETTLED_ITEMS) },
       documentos: { total: documents.length, items: documents.slice(0, MAX_ITEMS) },
+      // Files the client fully paid that are not invoiced yet
+      facturar: { total: toInvoice.length, items: toInvoice.slice(0, MAX_ITEMS) },
     });
   } catch (error) {
     res.status(500).json({ msg: "Error al armar el inicio", error });

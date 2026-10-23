@@ -2,6 +2,7 @@ import { prisma } from "../db/index";
 import { Request, Response } from "express";
 import { Prisma } from "@prisma/client";
 import cloudinary from "../config/cloudinary";
+import { filePaymentsInclude, getPaymentsSummary } from "../utils/payments";
 import {
   buildPage,
   getPaginationParams,
@@ -341,18 +342,34 @@ export const getPaxFiles = async (req: Request, res: Response) => {
   try {
     const files = await prisma.file.findMany({
       where: { clients: { some: { id: paxId } } },
-      select: {
-        id: true,
-        numero: true,
-        anio: true,
-        nro: true,
-        destino: true,
-        fechaSalida: true,
+      include: {
+        ...filePaymentsInclude,
+        clients: { select: { id: true, firstname: true, lastname: true } },
       },
       orderBy: { fechaSalida: "desc" },
     });
 
-    res.json({ data: files });
+    // Each trip with who else traveled, what it cost and whether it was paid and invoiced
+    res.json({
+      data: files.map((file) => {
+        const summary = getPaymentsSummary(file);
+        return {
+          id: file.id,
+          numero: file.numero,
+          anio: file.anio,
+          nro: file.nro,
+          destino: file.destino,
+          fechaSalida: file.fechaSalida,
+          acompanantes: file.clients.filter((c) => c.id !== paxId),
+          servicios: file.services.length,
+          moneda: summary.moneda,
+          total: summary.total,
+          falta: summary.falta,
+          estado: summary.estado,
+          facturado: !!file.facturadoAt,
+        };
+      }),
+    });
   } catch (error) {
     res.status(500).json({ msg: "Error retrieving pax files", error });
     console.log(error);

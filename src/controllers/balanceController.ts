@@ -62,6 +62,30 @@ export const removeInvoice = async (req: Request, res: Response) => {
   }
 };
 
+// Files the client fully paid that are not invoiced yet, by departure. Also used by the home page
+export const listFilesToInvoice = async () => {
+  // Checked quickly first, then calculated in detail
+  const balances = await getFileBalances({ facturadoAt: null });
+  const files = await prisma.file.findMany({
+    where: { id: { in: balances.filter((f) => f.chargeable && f.paid >= f.target - 0.009).map((f) => f.id) } },
+    include: { ...filePaymentsInclude, clients: { select: { firstname: true, lastname: true }, take: 1 } },
+  });
+  return files
+    .map((file) => ({ file, summary: getPaymentsSummary(file) }))
+    .filter(({ summary }) => summary.estado === "PAGADO" && summary.total > 0)
+    .sort((a, b) => a.file.fechaSalida.getTime() - b.file.fechaSalida.getTime())
+    .map(({ file, summary }) => ({
+      id: file.id,
+      numero: file.numero,
+      anio: file.anio,
+      destino: file.destino,
+      fechaSalida: file.fechaSalida,
+      pasajero: file.clients[0] ?? null,
+      moneda: summary.moneda,
+      total: summary.total,
+    }));
+};
+
 // GET /balance?desde=2026-01-01&hasta=2026-10-22 (both days included; by default this year).
 // meses: invoiced and paid per currency in each month of the period (the first and last
 // months only count the days inside it); porFacturar: files fully paid by the client that are
@@ -74,7 +98,7 @@ export const getBalance = async (req: Request, res: Response) => {
   const end = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate() + 1);
 
   try {
-    const [invoiced, supplierPayments, notInvoiced] = await Promise.all([
+    const [invoiced, supplierPayments, porFacturar] = await Promise.all([
       prisma.file.findMany({
         where: { facturadoAt: { gte: start, lt: end } },
         select: { facturadoAt: true, facturaImporte: true, facturaMoneda: true },
@@ -83,13 +107,7 @@ export const getBalance = async (req: Request, res: Response) => {
         where: { fecha: { gte: start, lt: end } },
         select: { fecha: true, importe: true, moneda: true },
       }),
-      // Not invoiced and fully paid (checked quickly first, then calculated in detail)
-      getFileBalances({ facturadoAt: null }).then((balances) =>
-        prisma.file.findMany({
-          where: { id: { in: balances.filter((f) => f.chargeable && f.paid >= f.target - 0.009).map((f) => f.id) } },
-          include: { ...filePaymentsInclude, clients: { select: { firstname: true, lastname: true }, take: 1 } },
-        })
-      ),
+      listFilesToInvoice(),
     ]);
 
     // Every month of the period, also the empty ones
@@ -109,21 +127,6 @@ export const getBalance = async (req: Request, res: Response) => {
       const month = byMonth.get(monthKey(p.fecha));
       if (month) add(month.pagado, p.moneda, Number(p.importe));
     }
-
-    const porFacturar = notInvoiced
-      .map((file) => ({ file, summary: getPaymentsSummary(file) }))
-      .filter(({ summary }) => summary.estado === "PAGADO" && summary.total > 0)
-      .sort((a, b) => a.file.fechaSalida.getTime() - b.file.fechaSalida.getTime())
-      .map(({ file, summary }) => ({
-        id: file.id,
-        numero: file.numero,
-        anio: file.anio,
-        destino: file.destino,
-        fechaSalida: file.fechaSalida,
-        pasajero: file.clients[0] ?? null,
-        moneda: summary.moneda,
-        total: summary.total,
-      }));
 
     res.json({ meses, porFacturar });
   } catch (error) {
