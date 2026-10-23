@@ -356,7 +356,8 @@ const createHistory = async (pax: Pax[]) => {
 
 // Solo el historial, cuando lo demás ya está cargado
 const addHistory = async () => {
-  const pax = await prisma.pax.findMany({ where: { obs: { startsWith: TAG } }, orderBy: { createdAt: "asc" } });
+  // The 15 demo pax (not the ones of other examples, like Disney)
+  const pax = await prisma.pax.findMany({ where: { obs: { startsWith: TAG }, email: { contains: ".demo" } }, orderBy: { createdAt: "asc" } });
   // En el mismo orden en que se crearon (el email tiene el número: ...demo3@ejemplo.com)
   const order = (p: Pax) => Number(p.email?.match(/demo(\d+)@/)?.[1] ?? 0);
   pax.sort((a, b) => order(a) - order(b));
@@ -513,14 +514,15 @@ const createGroupDemo = async (pax: Pax[]) => {
 
 // Solo la salida grupal, cuando lo demás ya está cargado
 const addGroupDemo = async () => {
-  const pax = await prisma.pax.findMany({ where: { obs: { startsWith: TAG } }, orderBy: { createdAt: "asc" } });
+  // The 15 demo pax (not the ones of other examples, like Disney)
+  const pax = await prisma.pax.findMany({ where: { obs: { startsWith: TAG }, email: { contains: ".demo" } }, orderBy: { createdAt: "asc" } });
   const order = (p: Pax) => Number(p.email?.match(/demo(\d+)@/)?.[1] ?? 0);
   pax.sort((a, b) => order(a) - order(b));
   if (pax.length < PAX.length) {
     console.log("Primero cargá los datos de prueba: npm run demo-data");
     return;
   }
-  if ((await prisma.grupo.count({ where: { obs: { startsWith: TAG } } })) > 0) {
+  if ((await prisma.grupo.count({ where: { obs: { startsWith: TAG }, titulo: "Europa Septiembre 2027" } })) > 0) {
     console.log("La salida grupal de prueba ya está cargada. Para volver a cargarla, primero: npm run demo-data -- --borrar");
     return;
   }

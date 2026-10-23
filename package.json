@@ -13,7 +13,8 @@
     "change-password": "ts-node scripts/changePassword.ts",
     "assign-file-numbers": "ts-node scripts/assignFileNumbers.ts",
     "demo-data": "ts-node scripts/demoData.ts",
-    "benchmark": "ts-node scripts/benchmark.ts"
+    "benchmark": "ts-node scripts/benchmark.ts",
+    "demo-disney": "node scripts/demoDisney.js"
   },
   "keywords": [],
   "author": "LUCAS PERATTA",
