@@ -1,4 +1,5 @@
 // Loads example data to try the system: npm run demo-data
+// Only the past trips (if the rest is already loaded): npm run demo-data -- --historial
 // Removes it: npm run demo-data -- --borrar
 // Only runs against a database on this computer (localhost). Everything it creates is
 // marked with [DEMO] so it can be removed without touching real data.
@@ -192,6 +193,182 @@ const FILES: DemoFile[] = [
   },
 ];
 
+// Historial: viajes de este año que ya salieron, pagados al 100% por el pasajero y a los
+// mayoristas (aéreos al emitir, el resto 1 mes antes). Casi todos facturados cuando el
+// pasajero terminó de pagar; algunos sin facturar para ver el aviso "falta facturar"
+interface HistoryFile {
+  destino: string;
+  creado: string;
+  salida: string;
+  pax: number[];
+  moneda: Currency;
+  services: { type: ServiceType; nombre: string; provider: string; neto: number; tarifa: number }[];
+  facturado: boolean;
+}
+
+const HISTORY: HistoryFile[] = [
+  { destino: "Florianópolis", creado: "2026-01-05", salida: "2026-02-10", pax: [0, 1], moneda: "PESOS", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo AEP-FLN-AEP", provider: "Aerolíneas Argentinas", neto: 900000, tarifa: 1050000 },
+    { type: "HOTEL", nombre: "Posada en Jurerê 7 noches", provider: "Juliá Tours", neto: 1200000, tarifa: 1450000 },
+  ] },
+  { destino: "Miami", creado: "2026-01-20", salida: "2026-03-15", pax: [10, 11], moneda: "USD", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo EZE-MIA-EZE", provider: "American Airlines", neto: 1400, tarifa: 1650 },
+    { type: "HOTEL", nombre: "Hotel en Brickell 6 noches", provider: "Hoteldo", neto: 1800, tarifa: 2200 },
+  ] },
+  { destino: "Río de Janeiro", creado: "2026-02-10", salida: "2026-04-05", pax: [12], moneda: "USD", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo EZE-GIG-EZE", provider: "LATAM", neto: 1100, tarifa: 1300 },
+    { type: "HOTEL", nombre: "Hotel en Copacabana 6 noches", provider: "Ola", neto: 1300, tarifa: 1600 },
+    { type: "EXCURSION", nombre: "Cristo Redentor y Pan de Azúcar", provider: "Ola", neto: 150, tarifa: 220 },
+  ] },
+  { destino: "Ushuaia", creado: "2026-03-01", salida: "2026-04-20", pax: [2, 3], moneda: "PESOS", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo AEP-USH-AEP", provider: "Aerolíneas Argentinas", neto: 1100000, tarifa: 1300000 },
+    { type: "HOTEL", nombre: "Hotel Los Acebos 4 noches", provider: "Juliá Tours", neto: 900000, tarifa: 1100000 },
+    { type: "EXCURSION", nombre: "Navegación Canal Beagle", provider: "Juliá Tours", neto: 200000, tarifa: 260000 },
+  ] },
+  { destino: "Lisboa y Oporto", creado: "2026-03-15", salida: "2026-05-25", pax: [13], moneda: "USD", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo EZE-LIS-EZE", provider: "TAP", neto: 1600, tarifa: 1900 },
+    { type: "HOTEL", nombre: "Hoteles Lisboa y Oporto 8 noches", provider: "Europamundo", neto: 1400, tarifa: 1700 },
+  ] },
+  { destino: "Puerto Madryn", creado: "2026-04-10", salida: "2026-06-01", pax: [4, 5], moneda: "PESOS", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo AEP-PMY-AEP", provider: "Aerolíneas Argentinas", neto: 700000, tarifa: 820000 },
+    { type: "HOTEL", nombre: "Hotel frente al mar 4 noches", provider: "Juliá Tours", neto: 600000, tarifa: 750000 },
+    { type: "EXCURSION", nombre: "Avistaje de ballenas", provider: "Juliá Tours", neto: 150000, tarifa: 190000 },
+  ] },
+  { destino: "Aruba", creado: "2026-04-25", salida: "2026-07-10", pax: [6, 7], moneda: "USD", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo EZE-AUA-EZE", provider: "Copa", neto: 1500, tarifa: 1750 },
+    { type: "HOTEL", nombre: "Riu Palace Aruba 7 noches all inclusive", provider: "Hoteldo", neto: 2400, tarifa: 2900 },
+  ] },
+  { destino: "Cusco y Machu Picchu", creado: "2026-05-15", salida: "2026-07-25", pax: [8], moneda: "USD", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo EZE-LIM-CUZ-EZE", provider: "LATAM", neto: 900, tarifa: 1100 },
+    { type: "HOTEL", nombre: "Hoteles Cusco y Valle Sagrado 6 noches", provider: "Ola", neto: 700, tarifa: 900 },
+    { type: "EXCURSION", nombre: "Tren y entrada a Machu Picchu", provider: "Ola", neto: 500, tarifa: 650 },
+  ] },
+  { destino: "Córdoba", creado: "2026-06-05", salida: "2026-07-15", pax: [14], moneda: "PESOS", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo AEP-COR-AEP", provider: "Flybondi", neto: 500000, tarifa: 600000 },
+    { type: "HOTEL", nombre: "Hotel en Villa General Belgrano 5 noches", provider: "Juliá Tours", neto: 700000, tarifa: 850000 },
+  ] },
+  { destino: "Orlando", creado: "2026-06-20", salida: "2026-08-20", pax: [2, 3, 4, 5], moneda: "USD", facturado: false, services: [
+    { type: "AEREO", nombre: "Aéreo EZE-MCO-EZE (4 pax)", provider: "Copa", neto: 1700, tarifa: 2000 },
+    { type: "HOTEL", nombre: "Hotel cerca de Disney 8 noches", provider: "Hoteldo", neto: 2100, tarifa: 2600 },
+    { type: "EXCURSION", nombre: "Entradas a los parques", provider: "Hoteldo", neto: 900, tarifa: 1100 },
+  ] },
+  { destino: "El Calafate", creado: "2026-07-10", salida: "2026-09-05", pax: [0], moneda: "PESOS", facturado: false, services: [
+    { type: "AEREO", nombre: "Aéreo AEP-FTE-AEP", provider: "Aerolíneas Argentinas", neto: 1200000, tarifa: 1400000 },
+    { type: "HOTEL", nombre: "Hotel Xelena 4 noches", provider: "Juliá Tours", neto: 1000000, tarifa: 1250000 },
+  ] },
+  { destino: "Punta del Este", creado: "2026-08-01", salida: "2026-09-20", pax: [10], moneda: "USD", facturado: true, services: [
+    { type: "AEREO", nombre: "Aéreo AEP-PDP-AEP", provider: "Aerolíneas Argentinas", neto: 600, tarifa: 720 },
+    { type: "HOTEL", nombre: "Hotel en La Barra 5 noches", provider: "Ola", neto: 1500, tarifa: 1850 },
+  ] },
+  { destino: "Santiago de Chile", creado: "2026-08-20", salida: "2026-10-10", pax: [12], moneda: "USD", facturado: false, services: [
+    { type: "AEREO", nombre: "Aéreo EZE-SCL-EZE", provider: "LATAM", neto: 500, tarifa: 600 },
+    { type: "HOTEL", nombre: "Hotel en Providencia 4 noches", provider: "Ola", neto: 800, tarifa: 1000 },
+  ] },
+];
+
+// Fecha de calendario al mediodía, corrida "days" días
+const dateOf = (isoDate: string, days = 0) => new Date(new Date(`${isoDate}T12:00:00`).getTime() + days * DAY_MS);
+
+const createHistory = async (pax: Pax[]) => {
+  for (const [index, h] of HISTORY.entries()) {
+    const services: Service[] = [];
+    for (const s of h.services) {
+      services.push(
+        await prisma.service.create({
+          data: {
+            type: s.type,
+            nombre: s.nombre,
+            provider: s.provider,
+            precioNeto: String(s.neto),
+            tarifa: String(s.tarifa),
+            currency: h.moneda,
+            fechaInicio: dateOf(h.salida),
+            obs: "",
+            createdAt: dateOf(h.creado),
+            liquidado: s.type !== "AEREO",
+            liquidadoAt: s.type !== "AEREO" ? dateOf(h.salida, -30) : null,
+          },
+        })
+      );
+    }
+
+    const total = h.services.reduce((sum, s) => sum + s.tarifa, 0);
+    const sena = h.services.filter((s) => s.type === "AEREO").reduce((sum, s) => sum + s.tarifa, 0);
+    const payer = pax[h.pax[0]].id;
+    const createdAt = dateOf(h.creado);
+    const anio = yearInArgentina(createdAt);
+    const file = await prisma.$transaction(async (tx) =>
+      tx.file.create({
+        data: {
+          numero: await nextFileNumber(tx, anio),
+          anio,
+          obs: `${TAG} Viaje de prueba ya realizado`,
+          destino: h.destino,
+          fechaSalida: dateOf(h.salida),
+          createdAt,
+          precioNetoTotal: "0",
+          tarifaTotal: "0",
+          clients: { connect: h.pax.map((i) => ({ id: pax[i].id })) },
+          services: { connect: services.map((s) => ({ id: s.id })) },
+          // Facturado entero cuando el pasajero terminó de pagar
+          ...(h.facturado && {
+            facturadoAt: dateOf(h.salida, -24),
+            facturaImporte: total,
+            facturaMoneda: h.moneda,
+            facturaNumero: `B-0001-${String(1000 + index).padStart(8, "0")}`,
+          }),
+        },
+      })
+    );
+
+    // Pagado al 100%: la seña (aéreos) al reservar y el saldo 25 días antes de salir
+    for (const pago of [
+      { fecha: dateOf(h.creado, 1), importe: sena, medio: "TRANSFERENCIA" as const, nota: "Seña" },
+      { fecha: dateOf(h.salida, -25), importe: total - sena, medio: "EFECTIVO" as const, nota: "Saldo" },
+    ]) {
+      await prisma.filePago.create({
+        data: { ...pago, fileId: file.id, moneda: h.moneda, importeAplicado: pago.importe, pagadorId: payer, recibo: { create: {} } },
+      });
+    }
+
+    // Pagos a los mayoristas: aéreos al emitir (al día siguiente de reservar), el resto 1 mes antes
+    for (const s of services) {
+      await prisma.pagoMayorista.create({
+        data: {
+          fecha: s.type === "AEREO" ? dateOf(h.creado, 1) : dateOf(h.salida, -30),
+          mayorista: s.provider,
+          moneda: h.moneda,
+          importe: Number(s.precioNeto),
+          medio: "TRANSFERENCIA",
+          nota: `${TAG} Pago de prueba`,
+          aplicaciones: { create: [{ serviceId: s.id, importe: Number(s.precioNeto) }] },
+        },
+      });
+    }
+    console.log(
+      `   ${String(file.numero).padStart(2, "0")}-${file.anio}  ${h.destino.padEnd(22)} viajó el ${file.fechaSalida.toLocaleDateString("es-AR")}  ${h.facturado ? "facturado" : "SIN FACTURAR"}`
+    );
+  }
+};
+
+// Solo el historial, cuando lo demás ya está cargado
+const addHistory = async () => {
+  const pax = await prisma.pax.findMany({ where: { obs: { startsWith: TAG } }, orderBy: { createdAt: "asc" } });
+  // En el mismo orden en que se crearon (el email tiene el número: ...demo3@ejemplo.com)
+  const order = (p: Pax) => Number(p.email?.match(/demo(\d+)@/)?.[1] ?? 0);
+  pax.sort((a, b) => order(a) - order(b));
+  if (pax.length < PAX.length) {
+    console.log("Primero cargá los datos de prueba: npm run demo-data");
+    return;
+  }
+  if ((await prisma.file.count({ where: { obs: `${TAG} Viaje de prueba ya realizado` } })) > 0) {
+    console.log("El historial ya está cargado. Para volver a cargarlo, primero: npm run demo-data -- --borrar");
+    return;
+  }
+  console.log(`✅ Historial: ${HISTORY.length} viajes ya realizados y pagados:`);
+  await createHistory(pax);
+};
+
 const create = async () => {
   if ((await prisma.pax.count({ where: { obs: { startsWith: TAG } } })) > 0) {
     console.log("Ya hay datos de prueba cargados. Para volver a cargarlos, primero: npm run demo-data -- --borrar");
@@ -320,11 +497,14 @@ const create = async () => {
   for (const { file } of created) {
     console.log(`   ${String(file.numero).padStart(2, "0")}-${file.anio}  ${file.destino.padEnd(22)} sale el ${file.fechaSalida.toLocaleDateString("es-AR")}`);
   }
+  console.log(`✅ Historial: ${HISTORY.length} viajes ya realizados y pagados:`);
+  await createHistory(pax);
 };
 
 const main = async () => {
   assertLocalDatabase();
   if (process.argv.includes("--borrar")) await remove();
+  else if (process.argv.includes("--historial")) await addHistory();
   else await create();
 };
 
